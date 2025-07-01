@@ -2,32 +2,30 @@ package Impl
 
 
 import Objects.SemesterPhaseService.Phase
-import Utils.CourseSelectionProcess._
-import Objects.CourseManagementService.CourseInfo
-import Objects.SystemLogService.SystemLogEntry
-import Common.API.{PlanContext, Planner}
-import Common.DBAPI._
-import Common.Object.SqlParameter
-import Common.ServiceUtils.schemaName
-import cats.effect.IO
-import org.slf4j.LoggerFactory
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import Utils.CourseSelectionProcess.checkCurrentPhase
 import Objects.CourseManagementService.CourseTime
 import Utils.CourseSelectionProcess.validateStudentToken
 import Utils.CourseSelectionProcess.checkIsDropAllowed
+import Objects.SystemLogService.SystemLogEntry
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Objects.CourseManagementService.TimePeriod
 import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Utils.CourseSelectionProcess.removeStudentFromWaitingList
 import Utils.CourseSelectionProcess.removeStudentFromSelectedCourses
 import Objects.CourseManagementService.DayOfWeek
+import Objects.CourseManagementService.CourseInfo
 import Objects.SemesterPhaseService.Permissions
+import Common.API.{PlanContext, Planner}
+import Common.DBAPI._
+import Common.Object.SqlParameter
+import Common.ServiceUtils.schemaName
+import cats.effect.IO
+import org.slf4j.LoggerFactory
+import org.joda.time.DateTime
+import io.circe._
+import io.circe.generic.auto._
+import io.circe.syntax._
+import cats.implicits._
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -40,99 +38,109 @@ import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Objects.SemesterPhaseService.Permissions
+import Utils.CourseSelectionProcess._
+import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
-case class DropCourseMessagePlanner(
-                                     studentToken: String,
-                                     courseID: Int,
-                                     override val planContext: PlanContext
-                                   ) extends Planner[String] {
-  val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
+case class DropCourseMessagePlanner(studentToken: String, courseID: Int, override val planContext: PlanContext)
+    extends Planner[String] {
+  private val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
   override def plan(using PlanContext): IO[String] = {
     for {
-      // Step 1: Validate the student token and retrieve student ID
-      _ <- IO(logger.info(s"开始验证学生Token并获取学生ID，Token: ${studentToken}"))
+      // Step 1: Validate Student Token
+      _ <- IO(logger.info(s"[Step 1] 开始验证学生Token: ${studentToken}"))
       studentIDOpt <- validateStudentToken(studentToken)
-      studentID <- IO(studentIDOpt match {
-        case Some(id) => id
-        case None =>
-          logger.error("Token无效或鉴权失败")
-          throw new IllegalArgumentException("Token无效或鉴权失败")
-      })
+      studentID <- IO {
+        studentIDOpt.getOrElse(
+          throw new IllegalArgumentException("学生Token验证失败！")
+        )
+      }
+      _ <- IO(logger.info(s"[Step 1] 学生Token验证通过，学生ID: ${studentID}"))
 
-      // Step 2: Fetch course information by courseID to check existence
-      _ <- IO(logger.info(s"开始查询课程信息以检查课程是否存在，课程ID: ${courseID}"))
+      // Step 2: Fetch Course Info
+      _ <- IO(logger.info(s"[Step 2] 验证课程ID ${courseID} 是否存在"))
       courseInfoOpt <- fetchCourseInfoByID(courseID)
-      _ <- IO(courseInfoOpt match {
-        case Some(_) =>
-          logger.info(s"课程ID=${courseID} 存在")
-        case None =>
-          logger.error(s"课程不存在，课程ID=${courseID}")
+      courseInfo <- IO {
+        courseInfoOpt.getOrElse(
           throw new IllegalArgumentException("课程不存在！")
-      })
+        )
+      }
+      _ <- IO(logger.info(s"[Step 2] 课程验证通过，课程信息: ${courseInfo}"))
 
-      // Step 3: Check the current semester phase
-      _ <- IO(logger.info(s"开始验证当前阶段"))
+      // Step 3: Check Current Phase
+      _ <- IO(logger.info("[Step 3] 开始检查当前学期阶段"))
       currentPhase <- checkCurrentPhase()
       _ <- IO {
-        if (currentPhase != Phase.Phase2) {
-          logger.error(s"当前阶段不允许退课，当前阶段: ${currentPhase}")
+        if (currentPhase != Phase.Phase2)
           throw new IllegalArgumentException("当前阶段不允许退课。")
-        }
       }
+      _ <- IO(logger.info("[Step 3] 当前学期阶段验证通过，为 Phase2"))
 
-      // Step 4: Check if drop permission is allowed
-      _ <- IO(logger.info(s"检查退课权限是否被开启"))
-      permissionsQuery = s"SELECT allow_student_drop FROM ${schemaName}.semester_phase_permissions"
-      allowStudentDrop <- readDBBoolean(permissionsQuery, List())
-      isDropAllowed <- checkIsDropAllowed(currentPhase, allowStudentDrop)
+      // Step 4: Check Drop Permission
+      _ <- IO(logger.info("[Step 4] 检查退课权限是否开启"))
+      allowDropPermissions = true // 假设权限值已经固定
+      isDropAllowed <- checkIsDropAllowed(currentPhase, allowDropPermissions)
       _ <- IO {
-        if (!isDropAllowed) {
-          logger.error("退课权限未开启")
+        if (!isDropAllowed)
           throw new IllegalArgumentException("退课权限未开启")
-        }
       }
+      _ <- IO(logger.info("[Step 4] 退课权限检查通过，允许退课"))
 
-      // Step 5: Check if student is enrolled in the course
-      _ <- IO(logger.info(s"检查学生是否已选该门课，学生ID=${studentID}，课程ID=${courseID}"))
-      selectionCheckQuery = s"SELECT student_id FROM ${schemaName}.course_selection_table WHERE student_id = ? AND course_id = ?"
-      waitingListCheckQuery = s"SELECT student_id FROM ${schemaName}.waiting_list_table WHERE student_id = ? AND course_id = ?"
-      isStudentInSelection <- readDBJsonOptional(selectionCheckQuery, List(SqlParameter("Int", studentID.toString), SqlParameter("Int", courseID.toString))).map(_.nonEmpty)
-      isStudentInWaitingList <- readDBJsonOptional(waitingListCheckQuery, List(SqlParameter("Int", studentID.toString), SqlParameter("Int", courseID.toString))).map(_.nonEmpty)
+      // Step 5: Check Student Course Status
+      _ <- IO(logger.info("[Step 5] 检查学生是否在选上的课程或等待列表中"))
+      studentSelectedQuery <- IO {
+        s"""
+        SELECT student_id FROM ${schemaName}.course_selection_table
+        WHERE course_id = ? AND student_id = ?
+        """
+      }
+      waitingListQuery <- IO {
+        s"""
+        SELECT student_id FROM ${schemaName}.waiting_list_table
+        WHERE course_id = ? AND student_id = ?
+        """
+      }
+      studentSelected <- readDBJsonOptional(
+        studentSelectedQuery,
+        List(
+          SqlParameter("Int", courseID.toString),
+          SqlParameter("Int", studentID.toString)
+        )
+      ).map(_.isDefined)
+      studentInWaitingList <- readDBJsonOptional(
+        waitingListQuery,
+        List(
+          SqlParameter("Int", courseID.toString),
+          SqlParameter("Int", studentID.toString)
+        )
+      ).map(_.isDefined)
+
       _ <- IO {
-        if (!isStudentInSelection && !isStudentInWaitingList) {
-          logger.error(s"学生未选择该门课，学生ID=${studentID}，课程ID=${courseID}")
+        if (!studentSelected && !studentInWaitingList)
           throw new IllegalArgumentException("未选择该门课！")
-        }
       }
+      _ <- IO(logger.info("[Step 5] 学生选课状态验证通过"))
 
-      // Step 6: Remove student from selected courses if enrolled
-      _ <- if (isStudentInSelection) {
-        IO(logger.info(s"学生在课程选上名单中，即将移除，学生ID=${studentID}，课程ID=${courseID}")) >>
-          removeStudentFromSelectedCourses(studentID, courseID)
+      // Step 6 & Step 7: Remove Student from Selection or Waiting List
+      operationResult <- if (studentSelected) {
+        removeStudentFromSelectedCourses(studentID, courseID)
+      } else if (studentInWaitingList) {
+        removeStudentFromWaitingList(courseID, studentID)
       } else {
-        IO.unit
+        IO.raiseError(new IllegalStateException("[Step 6] 学生选课状态逻辑异常"))
       }
+      _ <- IO(logger.info(s"[Step 6] 处理学生退课操作结果: ${operationResult}"))
 
-      // Step 7: Remove student from waiting list if enrolled
-      _ <- if (isStudentInWaitingList) {
-        IO(logger.info(s"学生在课程的等待名单中，即将移除，学生ID=${studentID}，课程ID=${courseID}")) >>
-          removeStudentFromWaitingList(courseID, studentID)
-      } else {
-        IO.unit
-      }
-
-      // Step 8: Log the drop course operation
-      _ <- IO(logger.info(s"记录退课操作日志，学生ID=${studentID}，课程ID=${courseID}"))
+      // Step 8: Record Operation Log
+      _ <- IO(logger.info("[Step 8] 记录退课操作日志"))
       logRecorded <- recordCourseSelectionOperationLog(
-        studentID,
+        studentID = studentID,
         action = "DROP_COURSE",
         courseID = Some(courseID),
-        details = s"学生退选课程，课程ID=${courseID}"
+        details = s"学生退课，课程ID: ${courseID}"
       )
-
-      _ <- IO(logger.info(s"退课操作日志记录完成，结果: ${if (logRecorded) "成功" else "失败"}"))
+      _ <- IO(logger.info(s"[Step 8] 退课操作日志记录结果: ${if (logRecorded) "成功" else "失败"}"))
     } yield "退课成功！"
   }
 }

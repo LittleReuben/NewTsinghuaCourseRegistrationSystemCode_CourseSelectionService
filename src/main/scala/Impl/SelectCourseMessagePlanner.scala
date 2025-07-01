@@ -1,21 +1,22 @@
 package Impl
 
 
+import Objects.SemesterPhaseService.Phase
+import Utils.CourseSelectionProcess.checkCurrentPhase
+import Utils.CourseSelectionProcess.checkIsSelectionAllowed
+import Utils.CourseSelectionProcess.validateStudentCourseTimeConflict
+import Utils.CourseSelectionProcess.validateStudentToken
+import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
+import Utils.CourseSelectionProcess.fetchCourseInfoByID
+import Utils.CourseSelectionProcess.removeStudentFromWaitingList
+import Utils.CourseSelectionProcess.removeStudentFromSelectedCourses
+import Objects.CourseManagementService.{CourseTime, CourseInfo, DayOfWeek, TimePeriod}
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
-import Objects.CourseManagementService.{CourseInfo, CourseTime, DayOfWeek, TimePeriod}
-import Objects.SemesterPhaseService.{Permissions, Phase}
-import Objects.SystemLogService.SystemLogEntry
-import Utils.CourseSelectionProcess._
 import cats.effect.IO
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
 import org.slf4j.LoggerFactory
-import cats.implicits._
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -27,23 +28,19 @@ import cats.effect.IO
 import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
-import Objects.SemesterPhaseService.Phase
-import Utils.CourseSelectionProcess.checkCurrentPhase
 import Objects.CourseManagementService.CourseTime
-import Utils.CourseSelectionProcess.validateStudentCourseTimeConflict
-import Utils.CourseSelectionProcess.validateStudentToken
-import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
+import Objects.SystemLogService.SystemLogEntry
 import Objects.CourseManagementService.TimePeriod
-import Utils.CourseSelectionProcess.checkIsSelectionAllowed
-import Utils.CourseSelectionProcess.fetchCourseInfoByID
-import Utils.CourseSelectionProcess.removeStudentFromWaitingList
-import Utils.CourseSelectionProcess.removeStudentFromSelectedCourses
 import Objects.CourseManagementService.DayOfWeek
 import Objects.CourseManagementService.CourseInfo
 import Objects.SemesterPhaseService.Permissions
-import Objects.CourseManagementService._
-import Objects.SemesterPhaseService._
-import Objects.SystemLogService._
+import Common.Object.ParameterList
+import Utils.CourseSelectionProcess._
+import Objects.SemesterPhaseService.{Phase, Permissions}
+import org.joda.time.DateTime
+import io.circe._
+import io.circe.syntax._
+import io.circe.generic.auto._
 import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Objects.SemesterPhaseService.Permissions
@@ -57,134 +54,135 @@ case class SelectCourseMessagePlanner(
   val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
   override def plan(using PlanContext): IO[String] = {
-
     for {
-      // Step 1: 验证学生Token
-      _ <- IO(logger.info("步骤1: 验证学生Token"))
+      // Step 1: 验证学生Token并获取学生ID
+      _ <- IO(logger.info(s"验证学生Token: ${studentToken}"))
       studentIDOpt <- validateStudentToken(studentToken)
-      studentID <- IO {
-        studentIDOpt.getOrElse({
-          logger.error("Token验证失败")
-          throw new IllegalArgumentException("Token验证失败")
-        })
+      studentID <- studentIDOpt match {
+        case Some(id) =>
+          IO(logger.info(s"学生Token验证成功，学生ID: ${id}")).as(id)
+        case None =>
+          IO(logger.error(s"学生Token验证失败")).flatMap(_ =>
+            IO.raiseError(new IllegalArgumentException("Token验证失败"))
+          )
       }
-      _ <- IO(logger.info(s"Token验证成功，学生ID为: ${studentID}"))
 
       // Step 2: 验证课程是否存在
-      _ <- IO(logger.info("步骤2: 验证课程是否存在"))
+      _ <- IO(logger.info(s"验证课程ID: ${courseID}是否存在"))
       courseInfoOpt <- fetchCourseInfoByID(courseID)
-      courseInfo <- IO {
-        courseInfoOpt.getOrElse({
-          logger.error("课程不存在!")
-          throw new IllegalArgumentException("课程不存在!")
-        })
+      courseInfo <- courseInfoOpt match {
+        case Some(info) =>
+          IO(logger.info(s"查询课程信息成功，课程ID: ${courseID}"))
+            .as(info)
+        case None =>
+          IO(logger.error(s"课程ID: ${courseID}不存在"))
+            .flatMap(_ => IO.raiseError(new IllegalArgumentException("课程不存在！")))
       }
-      _ <- IO(logger.info(s"课程信息验证成功，课程ID为: ${courseInfo.courseID}"))
 
       // Step 3: 验证当前阶段和正选权限
-      _ <- IO(logger.info("步骤3: 验证当前阶段和正选权限"))
+      _ <- IO(logger.info(s"检查当前阶段是Phase2"))
       currentPhase <- checkCurrentPhase()
       _ <- IO {
         if (currentPhase != Phase.Phase2) {
-          logger.error("当前阶段不允许选课")
-          throw new IllegalStateException("当前阶段不允许选课")
+          logger.error(s"当前阶段不是Phase2，无法进行选课")
+          throw new IllegalArgumentException("当前阶段不允许选课。")
         }
       }
-      selectionAllowed <- checkIsSelectionAllowed()
+
+      _ <- IO(logger.info(s"检查选课权限是否开启"))
+      isSelectionAllowed <- checkIsSelectionAllowed()
       _ <- IO {
-        if (!selectionAllowed) {
-          logger.error("选课权限未开启")
-          throw new IllegalStateException("选课权限未开启")
+        if (!isSelectionAllowed) {
+          logger.error(s"选课权限未开启，无法进行选课")
+          throw new IllegalArgumentException("选课权限未开启")
         }
       }
-      _ <- IO(logger.info("阶段和权限验证成功"))
 
       // Step 4: 检查课程是否已选以及时间冲突
-      _ <- IO(logger.info("步骤4: 检查课程是否已选以及时间冲突"))
-      isAlreadySelected <- {
-        val sql =
-          s"""
-            SELECT COUNT(*) > 0 
-            FROM ${schemaName}.course_selection_table 
-            WHERE student_id = ? AND course_id = ?
-            UNION ALL
-            SELECT COUNT(*) > 0 
-            FROM ${schemaName}.waiting_list_table 
-            WHERE student_id = ? AND course_id = ?
-          """
-        val params = List(
-          SqlParameter("Int", studentID.toString),
-          SqlParameter("Int", courseID.toString),
-          SqlParameter("Int", studentID.toString),
-          SqlParameter("Int", courseID.toString)
-        )
-        readDBBoolean(sql, params)
-      }
+      _ <- checkAlreadySelected(studentID, courseID)
+      isConflict <- validateStudentCourseTimeConflict(studentID, courseID)
       _ <- IO {
-        if (isAlreadySelected) {
-          logger.error("该门课程已选!")
-          throw new IllegalStateException("该门课程已选!")
+        if (isConflict) {
+          logger.error(s"学生ID=${studentID}选课时间冲突，课程ID=${courseID}")
+          throw new IllegalArgumentException("时间冲突，无法选课。")
         }
       }
-      isTimeConflict <- validateStudentCourseTimeConflict(studentID, courseID)
-      _ <- IO {
-        if (isTimeConflict) {
-          logger.error("时间冲突，无法选课")
-          throw new IllegalStateException("时间冲突，无法选课")
-        }
-      }
-      _ <- IO(logger.info("课程尚未选且无时间冲突"))
 
-      // Step 5: 根据课程容量处理选课逻辑
-      _ <- IO(logger.info("步骤5: 处理选课逻辑"))
-      _ <- if (courseInfo.selectedStudentsSize >= courseInfo.courseCapacity) {
-        // 满员，加入Waiting List
-        val addWaitingListQuery =
-          s"""
-            INSERT INTO ${schemaName}.waiting_list_table (course_id, student_id, position)
-            VALUES (?, ?, ?)
-          """
-        val waitingListParams = List(
-          SqlParameter("Int", courseID.toString),
-          SqlParameter("Int", studentID.toString),
-          SqlParameter("Int", (courseInfo.waitingListSize + 1).toString)
-        )
-        writeDB(addWaitingListQuery, waitingListParams).flatMap(_ =>
-          IO(logger.info("课程已满员，学生已加入等待名单"))
-        )
-      } else {
-        // 未满员，加入选课名单
-        val addSelectionQuery =
-          s"""
-            INSERT INTO ${schemaName}.course_selection_table (course_id, student_id)
-            VALUES (?, ?)
-          """
-        val selectionParams = List(
-          SqlParameter("Int", courseID.toString),
-          SqlParameter("Int", studentID.toString)
-        )
-        writeDB(addSelectionQuery, selectionParams).flatMap(_ =>
-          IO(logger.info("课程未满员，学生已选上课程"))
-        )
-      }
+      // Step 5: 处理选课逻辑，根据课程容量的情况选择是否加入Waiting List或选课成功
+      resultMessage <-
+        if (courseInfo.selectedStudentsSize >= courseInfo.courseCapacity) {
+          enrollToWaitingList(studentID, courseID)
+        } else {
+          addStudentToSelectedCourses(studentID, courseID)
+        }
 
       // Step 6: 记录选课操作日志
-      _ <- IO(logger.info("步骤6: 记录选课操作日志"))
-      logDetails = s"学生ID ${studentID} 选课成功，课程ID为 ${courseID}"
-      logResult <- recordCourseSelectionOperationLog(
+      _ <- recordCourseSelectionOperationLog(
         studentID = studentID,
         action = "SELECT_COURSE",
         courseID = Some(courseID),
-        details = logDetails
+        details = s"选课操作结果: ${resultMessage}"
       )
-      _ <- IO {
-        if (!logResult) {
-          logger.warn("选课操作日志记录失败")
-        }
-      }
 
-      // Step 7: 返回选课成功结果消息
-      _ <- IO(logger.info("步骤7: 选课成功"))
-    } yield "选课成功！"
+      // Step 7: 返回结果消息
+    } yield resultMessage
+  }
+
+  private def checkAlreadySelected(studentID: Int, courseID: Int)(using PlanContext): IO[Unit] = {
+    val query =
+      s"""
+      SELECT course_id
+      FROM ${schemaName}.course_selection_table
+      WHERE student_id = ? AND course_id = ?
+    """
+    readDBJsonOptional(query, List(SqlParameter("Int", studentID.toString), SqlParameter("Int", courseID.toString))).flatMap {
+      case Some(_) =>
+        IO(logger.error(s"学生ID=${studentID}已选课程ID=${courseID}"))
+          .flatMap(_ => IO.raiseError(new IllegalArgumentException("该门课程已选！")))
+      case None =>
+        IO(logger.info(s"学生ID=${studentID}未选择课程ID=${courseID}"))
+    }
+  }
+
+  private def enrollToWaitingList(studentID: Int, courseID: Int)(using PlanContext): IO[String] = {
+    val positionQuery =
+      s"""
+      SELECT COUNT(*) + 1 AS position
+      FROM ${schemaName}.waiting_list_table
+      WHERE course_id = ?
+    """
+    val positionParams = List(SqlParameter("Int", courseID.toString))
+    for {
+      _ <- IO(logger.info(s"将学生加入Waiting List，课程ID=${courseID}, 学生ID=${studentID}"))
+      waitingPosition <- readDBInt(positionQuery, positionParams)
+      _ <- addStudentToWaitingList(studentID, courseID, waitingPosition)
+    } yield "课程已满员，已加入Waiting List。"
+  }
+
+  private def addStudentToWaitingList(studentID: Int, courseID: Int, position: Int)(using PlanContext): IO[Unit] = {
+    val query =
+      s"""
+      INSERT INTO ${schemaName}.waiting_list_table (course_id, student_id, position)
+      VALUES (?, ?, ?)
+    """
+    val params = List(
+      SqlParameter("Int", courseID.toString),
+      SqlParameter("Int", studentID.toString),
+      SqlParameter("Int", position.toString)
+    )
+    writeDB(query, params).flatMap(_ => IO(logger.info(s"学生已加入Waiting List，位置=${position}")))
+  }
+
+  private def addStudentToSelectedCourses(studentID: Int, courseID: Int)(using PlanContext): IO[String] = {
+    val query =
+      s"""
+      INSERT INTO ${schemaName}.course_selection_table (course_id, student_id)
+      VALUES (?, ?)
+    """
+    val params = List(
+      SqlParameter("Int", courseID.toString),
+      SqlParameter("Int", studentID.toString)
+    )
+    writeDB(query, params).map(_ => "选课成功！")
   }
 }

@@ -7,17 +7,21 @@ import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
 import Objects.SemesterPhaseService.Phase
 import Objects.SemesterPhaseService.SemesterPhase
-import Objects.CourseManagementService.CourseTime
-import APIs.SemesterPhaseService.QuerySemesterPhaseStatusMessage
-import Utils.CourseSelectionProcess.validateStudentToken
-import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Objects.CourseManagementService.CourseInfo
+import Utils.CourseSelectionProcess._
+import APIs.SemesterPhaseService.QuerySemesterPhaseStatusMessage
+import cats.effect.IO
+import org.slf4j.LoggerFactory
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
 import org.joda.time.DateTime
-import cats.implicits._
-import org.slf4j.LoggerFactory
+import cats.implicits.*
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
+import Objects.CourseManagementService.CourseTime
+import Objects.SystemLogService.SystemLogEntry
+import Objects.CourseManagementService.DayOfWeek
+import Objects.CourseManagementService.TimePeriod
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -29,13 +33,10 @@ import cats.effect.IO
 import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
-import Objects.SystemLogService.SystemLogEntry
+import Utils.CourseSelectionProcess.validateStudentToken
+import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
-import Objects.CourseManagementService.DayOfWeek
-import Objects.CourseManagementService.TimePeriod
 import Objects.SemesterPhaseService.Permissions
-import cats.effect.IO
-import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Objects.SemesterPhaseService.Permissions
 
@@ -45,55 +46,48 @@ case class QueryStudentSelectedCoursesMessagePlanner(
 ) extends Planner[List[CourseInfo]] {
   val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
-  override def plan(using planContext: PlanContext): IO[List[CourseInfo]] = {
+  override def plan(using PlanContext): IO[List[CourseInfo]] = {
     for {
-      // Step 1: 验证studentToken并获取studentID
-      _ <- IO(logger.info(s"验证学生Token：$studentToken"))
+      // Step 1: 验证学生Token并获取studentID
+      _ <- IO(logger.info(s"开始验证学生Token: ${studentToken}"))
       studentIDOpt <- validateStudentToken(studentToken)
       studentID <- IO {
-        studentIDOpt.getOrElse {
-          logger.error(s"学生Token验证失败或Token无效，无法获取学生ID")
-          throw new IllegalStateException(s"学生Token验证失败，无法获取学生ID")
-        }
+        studentIDOpt.getOrElse(throw new IllegalArgumentException("Invalid studentToken"))
       }
+      _ <- IO(logger.info(s"学生ID验证成功，studentID: ${studentID}"))
 
-      // Step 2: 验证当前学期阶段是否为Phase2
-      _ <- IO(logger.info(s"查询当前学期阶段信息"))
-      semesterPhaseResult <- QuerySemesterPhaseStatusMessage(studentToken).send
-      _ <- IO(logger.info(s"成功获取当前学期阶段信息：${semesterPhaseResult}"))
-      currentPhase = semesterPhaseResult.currentPhase
+      // Step 2: 调用QuerySemesterPhaseStatusMessage接口，检查学期阶段是否为Phase2
+      _ <- IO(logger.info("检查当前学期阶段"))
+      semesterPhase <- QuerySemesterPhaseStatusMessage(studentToken).send
       _ <- IO {
-        if (currentPhase != Phase.Phase2) {
-          logger.error("当前阶段尚未抽签完成，无法查询选中课程！")
-          throw new IllegalStateException("当前阶段尚未抽签完成，无法查询选中课程！")
-        }
+        if (semesterPhase.currentPhase != Phase.Phase2)
+          throw new IllegalStateException("当前阶段尚未抽签完成")
       }
-      _ <- IO(logger.info(s"当前阶段验证通过：$currentPhase（正选阶段Phase2）"))
+      _ <- IO(logger.info("学期阶段验证通过，当前阶段为Phase2"))
 
-      // Step 3: 查询studentID对应的选中课程信息
-      _ <- IO(logger.info(s"查询学生ID为${studentID}的选中课程信息"))
+      // Step 3: 查询学生选中的课程信息
+      _ <- IO(logger.info("开始查询学生选中的课程信息"))
       selectedCoursesQuery =
         s"""
-          SELECT course_id
-          FROM ${schemaName}.course_selection_table
-          WHERE student_id = ?
+         SELECT course_id
+         FROM ${schemaName}.course_selection_table
+         WHERE student_id = ?
         """
-      selectedCoursesRaw <- readDBRows(
-        selectedCoursesQuery,
-        List(SqlParameter("Int", studentID.toString))
-      )
-      courseIDs <- IO {
-        selectedCoursesRaw.map(json => decodeField[Int](json, "course_id"))
-      }
-      _ <- IO(logger.info(s"学生ID为${studentID}的选中课程ID列表：${courseIDs.mkString(", ")}"))
+      selectedCourses <- readDBRows(selectedCoursesQuery, List(SqlParameter("Int", studentID.toString)))
+        .map(_.map(json => decodeField[Int](json, "course_id")))
+      _ <- IO(logger.info(s"成功查询到选中课程ID列表: ${selectedCourses}"))
 
       // Step 4: 构造CourseInfo对象列表
-      courseInfoList <- courseIDs
-        .map(fetchCourseInfoByID)
-        .sequence
-        .map(_.flatten) // 过滤掉结果中可能的None值
-      _ <- IO(logger.info(s"成功构造课程信息列表，包含${courseInfoList.length}门课程：${courseInfoList.map(_.courseID).mkString(", ")}"))
+      courseInfos <- selectedCourses.traverse { courseID =>
+        fetchCourseInfoByID(courseID).map {
+          case Some(courseInfo) =>
+            courseInfo
+          case None =>
+            throw new IllegalStateException(s"无法找到课程ID为${courseID}的详细信息")
+        }
+      }
+      _ <- IO(logger.info(s"成功构造选中课程的CourseInfo列表: ${courseInfos}"))
 
-    } yield courseInfoList
+    } yield courseInfos
   }
 }
