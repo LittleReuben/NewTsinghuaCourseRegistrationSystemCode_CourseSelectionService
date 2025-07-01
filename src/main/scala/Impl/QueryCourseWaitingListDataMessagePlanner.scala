@@ -33,7 +33,9 @@ import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Objects.CourseManagementService.CourseInfo
-import Utils.CourseSelectionProcess.{checkCurrentPhase, fetchCourseInfoByID, validateTeacherToken}
+import Object.TongwenObject.ReturnTypes.ProjectInfo
+import Utils.CourseSelectionProcess._
+import io.circe.Json
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -41,85 +43,79 @@ import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
 case class QueryCourseWaitingListDataMessagePlanner(
-    teacherToken: String,
-    courseID: Int,
-    override val planContext: PlanContext
+  teacherToken: String,
+  courseID: Int,
+  override val planContext: PlanContext
 ) extends Planner[List[SafeUserInfo]] {
 
-  val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
+  val logger = LoggerFactory.getLogger(
+    this.getClass.getSimpleName + "_" + planContext.traceID.id
+  )
 
   override def plan(using PlanContext): IO[List[SafeUserInfo]] = {
     for {
-      // Step 1: Validate teacher token
-      _ <- IO(logger.info("开始验证教师Token"))
-      teacherIDOpt <- validateTeacherToken(teacherToken)
-      teacherID <- IO {
-        teacherIDOpt match {
-          case Some(value) => value
-          case None =>
-            throw new IllegalArgumentException("教师验证失败！")
-        }
-      }
-      _ <- IO(logger.info(s"教师验证成功，TeacherID: ${teacherID}"))
+      // Step 1: Validate teacherToken to get teacherID
+      _ <- IO(logger.info("[Step 1] 验证teacherToken"))
+      teacherIDOption <- validateTeacherToken(teacherToken)
+      teacherID <- IO.fromOption(teacherIDOption)(
+        new Exception("教师验证失败！")
+      )
+      _ <- IO(logger.info(s"teacherToken验证通过, 对应的teacherID: ${teacherID}"))
 
-      // Step 2: Fetch course information
-      _ <- IO(logger.info(s"获取课程信息，课程ID: ${courseID}"))
-      courseInfoOpt <- fetchCourseInfoByID(courseID)
-      courseInfo <- IO {
-        courseInfoOpt match {
-          case Some(value) => value
-          case None =>
-            throw new IllegalArgumentException("课程不存在！")
-        }
-      }
+      // Step 2: Validate course existence by ID
+      _ <- IO(logger.info("[Step 2] 验证课程是否存在"))
+      courseInfoOption <- fetchCourseInfoByID(courseID)
+      courseInfo <- IO.fromOption(courseInfoOption)(
+        new Exception("课程不存在！")
+      )
       _ <- IO(logger.info(s"课程信息获取成功: ${courseInfo}"))
 
-      // Step 3: Verify current phase
-      _ <- IO(logger.info("检查当前学期阶段"))
+      // Step 3: Check if current phase is Phase2
+      _ <- IO(logger.info("[Step 3] 检查当前学期阶段是否为Phase2"))
       currentPhase <- checkCurrentPhase()
-      _ <- IO {
-        if (currentPhase != Phase.Phase2) {
-          throw new IllegalArgumentException("当前阶段尚未抽签。")
-        }
-      }
-      _ <- IO(logger.info("当前学期阶段验证通过，已进入Phase2"))
+      _ <- if currentPhase == Phase.Phase2 then IO.unit
+      else
+        IO.raiseError(
+          new Exception("当前阶段尚未抽签。")
+        )
+      _ <- IO(logger.info(s"当前阶段为: ${currentPhase}"))
 
-      // Step 4: Query WaitingListTable to get all student IDs and positions
-      _ <- IO(logger.info("开始查询等待队列中的学生信息"))
+      // Step 4: Query waiting list data from database
+      _ <- IO(logger.info("[Step 4] 查询课程的Waiting List数据"))
       waitingListQuery =
         s"""
-           |SELECT student_id, position 
-           |FROM ${schemaName}.waiting_list_table 
-           |WHERE course_id = ?
-         """.stripMargin
-      waitingListParams = List(SqlParameter("Int", courseID.toString))
+          SELECT student_id, position
+          FROM ${schemaName}.waiting_list_table
+          WHERE course_id = ?
+          ORDER BY position;
+        """
+      waitingListParams <- IO { List(SqlParameter("Int", courseID.toString)) }
       waitingListRows <- readDBRows(waitingListQuery, waitingListParams)
-      waitingList <- IO {
-        waitingListRows.map { row =>
-          val studentID = decodeField[Int](row, "student_id")
-          val position = decodeField[Int](row, "position")
+      waitingListData <- IO {
+        waitingListRows.map { json =>
+          val studentID = decodeField[Int](json, "student_id")
+          val position = decodeField[Int](json, "position")
           (studentID, position)
         }
       }
-      _ <- IO(logger.info(s"查询到等待队列信息: ${waitingList}"))
+      _ <- IO(logger.info(s"Waiting List查询结果: ${waitingListData}"))
 
-      // Step 5: Convert student IDs into SafeUserInfo
-      _ <- IO(logger.info(s"转换学生ID为SafeUserInfo"))
-      studentIDs = waitingList.map(_._1)
-      safeUserInfoList <- QuerySafeUserInfoByUserIDListMessage(studentIDs).send
-      _ <- IO(logger.info(s"转换完成，SafeUserInfo信息: ${safeUserInfoList}"))
+      // Step 5: Use QuerySafeUserInfoByUserIDListMessage to fetch user info
+      _ <- IO(logger.info("[Step 5] 根据学生ID批量查询其安全用户信息"))
+      studentIDs = waitingListData.map(_._1)
+      safeUserInfos <- QuerySafeUserInfoByUserIDListMessage(studentIDs).send
+      _ <- IO(logger.info(s"安全用户信息查询成功: ${safeUserInfos}"))
 
-      // Step 6: Construct final waiting list data with SafeUserInfo and order based on the position
-      _ <- IO(logger.info("构造最终的等待队列信息"))
-      waitingListData = waitingList
-        .zip(safeUserInfoList)
-        .map { case ((_, position), safeUserInfo) =>
-          (safeUserInfo, position)
+      // Step 6: Construct the result combining SafeUserInfo and their ranks
+      _ <- IO(logger.info("[Step 6] 构造Waiting List结果数据"))
+      result <- IO {
+        waitingListData.sortBy(_._2).flatMap {
+          case (studentID, _) =>
+            safeUserInfos.find(_.userID == studentID).map(identity)
         }
-        .sortBy(_._2)
-        .map(_._1)
-
-      _ <- IO(logger.info(s"等待队列数据构造完成: ${waitingListData}"))
-    } yield waitingListData
+      }
+      _ <- IO(logger.info(s"返回的Waiting List数据: ${result}"))
+    } yield result
   }
+
 }
