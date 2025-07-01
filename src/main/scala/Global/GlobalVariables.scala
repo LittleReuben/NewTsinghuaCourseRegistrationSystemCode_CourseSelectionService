@@ -4,7 +4,8 @@ import Global.ServiceCenter.*
 
 
 object GlobalVariables {
-  lazy val serviceCode : String = tongWenServiceCode
+  lazy val serviceCode : String = CourseSelectionServiceCode
   val projectIDLength:Int=20
   var isTest:Boolean=false
+
 }
