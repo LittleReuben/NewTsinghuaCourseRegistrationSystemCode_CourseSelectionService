@@ -1,52 +1,48 @@
-import Common.API.{PlanContext}
-import Common.DBAPI.{readDBRows, writeDB}
+import Common.API.{PlanContext, Planner}
+import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
+import cats.effect.IO
 import org.slf4j.LoggerFactory
 import org.joda.time.DateTime
-import cats.effect.IO
 
-def CourseSelectionProcess()(using PlanContext): IO[Unit] = {
-  // Logger instance
-  val logger = LoggerFactory.getLogger("CourseSelectionProcess")
-
-  logger.info("[CourseSelectionProcess] 开始执行选课流程")
-
-  // Step 1: 查询课程表，获取所有课程
-  val courseFetchSQL =
-    s"""
-      SELECT course_id, course_name, capacity, enrolled_students
-      FROM ${schemaName}.course
-    """
+def CourseSelectionProcess()(using PlanContext): IO[String] = {
+  val logger = LoggerFactory.getLogger(getClass)
+  logger.info("[CourseSelectionProcess] 开始处理选课逻辑")
+  
+  // 定义 SQL 查询语句，用于获取开放注册的课程信息
+  val fetchCoursesSQL = s"""
+    SELECT course_id, course_name
+    FROM ${schemaName}.courses
+    WHERE registration_open = true;
+  """
+  logger.info(s"[CourseSelectionProcess] 准备执行获取可选课程列表的 SQL: ${fetchCoursesSQL}")
+  
   for {
-    _ <- IO(logger.info(s"[Step 1] 执行查询所有课程的 SQL：${courseFetchSQL}"))
-    courses <- readDBRows(courseFetchSQL, List())
-
-    // Step 2: 检查课程容量并打印信息
-    _ <- IO {
-      courses.foreach { course =>
-        val courseID = decodeField[Int](course, "course_id")
-        val courseName = decodeField[String](course, "course_name")
-        val capacity = decodeField[Int](course, "capacity")
-        val enrolledStudents = decodeField[Int](course, "enrolled_students")
-
-        if (enrolledStudents >= capacity) {
-          logger.info(s"[Step 2] 课程 ${courseName} (ID: ${courseID}) 已满员，当前报名人数: ${enrolledStudents}，容量: ${capacity}")
-        } else {
-          logger.info(s"[Step 2] 课程 ${courseName} (ID: ${courseID}) 有空余名额，当前报名人数: ${enrolledStudents}，容量: ${capacity}")
-        }
+    // 执行 SQL 查询以获取开放选课的课程列表
+    courseRows <- readDBRows(fetchCoursesSQL, List.empty)
+    // 将查询到的行数据转换为课程信息列表
+    courseList <- IO {
+      logger.info(s"[CourseSelectionProcess] 获取到的课程信息有 ${courseRows.size} 条")
+      courseRows.map { row =>
+        val courseId = decodeField[Int](row, "course_id")
+        val courseName = decodeField[String](row, "course_name")
+        logger.debug(s"[CourseSelectionProcess] 课程详情 - ID: ${courseId}, 名称: ${courseName}")
+        (courseId, courseName)
       }
     }
 
-    // Step 3: 清理过期数据（为保证流程正确性，假定有一个逻辑清理历史选课记录）
-    val cleanupSQL =
-      s"DELETE FROM ${schemaName}.course_selection_history WHERE date < ?"
-    val cleanupDate = DateTime.now.minusDays(30).getMillis.toString
-    _ <- IO(logger.info(s"[Step 3] 执行清理历史选课记录 SQL：${cleanupSQL}，日期参数为: ${cleanupDate}"))
-    _ <- writeDB(cleanupSQL, List(SqlParameter("Long", cleanupDate)))
-
-    _ <- IO(logger.info("[Step 3] 历史选课记录清理完成"))
-
-    _ <- IO(logger.info("[CourseSelectionProcess] 选课流程执行完毕"))
-  } yield ()
+    // 根据课程信息列表的大小来决定返回值
+    result <- if (courseList.isEmpty) {
+      val message = "[CourseSelectionProcess] 当前没有开放的课程"
+      logger.info(message)
+      IO.pure(message)
+    } else {
+      // 构造课程列表信息并返回给调用者
+      val availableCourses = courseList.map { case (id, name) => s"课程 ID: ${id}, 名称: ${name}" }.mkString("\n")
+      val message = s"[CourseSelectionProcess] 可供选择的课程有:\n${availableCourses}"
+      logger.info(message)
+      IO.pure(message)
+    }
+  } yield result
 }
