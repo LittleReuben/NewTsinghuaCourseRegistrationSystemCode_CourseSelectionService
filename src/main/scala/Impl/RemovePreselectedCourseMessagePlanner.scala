@@ -1,23 +1,25 @@
 package Impl
 
 
-import Objects.SemesterPhaseService.Phase
-import Utils.CourseSelectionProcess.checkCurrentPhase
-import Utils.CourseSelectionProcess.validateStudentToken
-import Utils.CourseSelectionProcess.fetchCourseInfoByID
-import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
-import Objects.CourseManagementService.CourseInfo
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
+import Objects.SemesterPhaseService.Phase
+import Utils.CourseSelectionProcess._
+import Objects.CourseManagementService.CourseInfo
 import cats.effect.IO
 import org.slf4j.LoggerFactory
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
 import org.joda.time.DateTime
-import cats.implicits.*
+import cats.implicits._
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
+import Objects.CourseManagementService.CourseTime
+import Objects.SystemLogService.SystemLogEntry
+import Objects.CourseManagementService.DayOfWeek
+import Objects.CourseManagementService.TimePeriod
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
@@ -29,11 +31,12 @@ import cats.effect.IO
 import Common.Object.SqlParameter
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.ServiceUtils.schemaName
-import Objects.CourseManagementService.CourseTime
-import Objects.SystemLogService.SystemLogEntry
-import Objects.CourseManagementService.DayOfWeek
-import Objects.CourseManagementService.TimePeriod
+import Utils.CourseSelectionProcess.checkCurrentPhase
+import Utils.CourseSelectionProcess.validateStudentToken
+import Utils.CourseSelectionProcess.fetchCourseInfoByID
+import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Objects.CourseManagementService.CourseInfo
+import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
 case class RemovePreselectedCourseMessagePlanner(
@@ -41,64 +44,86 @@ case class RemovePreselectedCourseMessagePlanner(
   courseID: Int,
   override val planContext: PlanContext
 ) extends Planner[String] {
-  private val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
+  val logger = LoggerFactory.getLogger(this.getClass.getSimpleName + "_" + planContext.traceID.id)
 
   override def plan(using PlanContext): IO[String] = {
     for {
-      // Step 1: 验证学生Token并获取studentID
+      // Step 1: Validate student token
       _ <- IO(logger.info(s"[Step 1] 验证学生Token: ${studentToken}"))
       studentIDOpt <- validateStudentToken(studentToken)
       studentID <- IO {
-        studentIDOpt.getOrElse(
-          throw new IllegalArgumentException(s"[Step 1.1] 学生Token验证失败: ${studentToken}")
-        )
+        studentIDOpt.getOrElse {
+          val errorMessage = "学生Token验证失败！"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
       }
-      _ <- IO(logger.info(s"[Step 1.2] 学生Token验证成功，学生ID: ${studentID}"))
+      _ <- IO(logger.info(s"[Step 1] 学生ID验证成功: ${studentID}"))
 
-      // Step 2: 验证课程是否存在
-      _ <- IO(logger.info(s"[Step 2] 验证课程ID: ${courseID}是否存在"))
+      // Step 2: Verify course existence
+      _ <- IO(logger.info(s"[Step 2] 检查课程是否存在，课程ID: ${courseID}"))
       courseInfoOpt <- fetchCourseInfoByID(courseID)
       _ <- IO {
-        courseInfoOpt.getOrElse(
-          throw new IllegalStateException(s"[Step 2.1] 课程不存在, ID: ${courseID}")
-        )
+        if (courseInfoOpt.isEmpty) {
+          val errorMessage = "课程不存在！"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
       }
-      _ <- IO(logger.info(s"[Step 2.2] 课程验证通过，课程ID: ${courseID}"))
+      _ <- IO(logger.info(s"[Step 2] 课程ID存在: ${courseID}"))
 
-      // Step 3: 检查当前学期阶段是否为Phase1
-      _ <- IO(logger.info(s"[Step 3] 检查当前学期阶段是否为Phase1"))
+      // Step 3: Check current phase
+      _ <- IO(logger.info("[Step 3] 检查当前学期阶段"))
       currentPhase <- checkCurrentPhase()
       _ <- IO {
         if (currentPhase != Phase.Phase1) {
-          throw new IllegalStateException(s"[Step 3.1] 当前阶段不允许移除预选课程, 当前阶段: ${currentPhase}")
+          val errorMessage = "当前阶段不允许移除预选课程"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
         }
       }
-      _ <- IO(logger.info(s"[Step 3.2] 当前学期阶段为Phase1，允许移除预选课程"))
+      _ <- IO(logger.info("[Step 3] 当前阶段允许移除预选课程"))
 
-      // Step 4: 移除学生的预选记录
-      _ <- IO(logger.info(s"[Step 4] 从数据库移除学生ID: ${studentID} 和课程ID: ${courseID} 的预选记录"))
-      deleteSql <- IO {
-        s"""
+      // Step 4: Remove preselected course record
+      _ <- IO(logger.info(s"[Step 4] 移除预选课程记录，学生ID: ${studentID}, 课程ID: ${courseID}"))
+      deleteQuery <- IO(s"""
         DELETE FROM ${schemaName}.course_preselection_table
-        WHERE course_id = ? AND student_id = ?
-        """
+        WHERE student_id = ? AND course_id = ?
+      """)
+      deleteParams <- IO(
+        List(
+          SqlParameter("Int", studentID.toString),
+          SqlParameter("Int", courseID.toString)
+        )
+      )
+      deleteResult <- writeDB(deleteQuery, deleteParams)
+      _ <- IO {
+        if (deleteResult == "Operation(s) done successfully") {
+          logger.info(s"[Step 4] 移除预选记录成功，学生ID: ${studentID}, 课程ID: ${courseID}")
+        } else {
+          val errorMessage = s"[Step 4] 移除预选记录失败，学生ID: ${studentID}, 课程ID: ${courseID}"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
       }
-      deleteResult <- writeDB(deleteSql, List(
-        SqlParameter("Int", courseID.toString), 
-        SqlParameter("Int", studentID.toString)
-      ))
-      _ <- IO(logger.info(s"[Step 4.1] 预选记录移除结果: ${deleteResult}"))
 
-      // Step 5: 记录操作日志
+      // Step 5: Record operation log
       _ <- IO(logger.info(s"[Step 5] 记录移除预选课程的操作日志"))
-      logResult <- recordCourseSelectionOperationLog(
-        studentID = studentID,
+      logRecorded <- recordCourseSelectionOperationLog(
+        studentID,
         action = "REMOVE_PRESELECTED_COURSE",
         courseID = Some(courseID),
-        details = "移除预选课程成功"
+        details = s"学生ID: ${studentID}移除了预选课程ID: ${courseID}"
       )
-      _ <- IO(logger.info(s"[Step 5.1] 操作日志记录结果: ${if (logResult) "成功" else "失败"}"))
-
+      _ <- IO {
+        if (logRecorded) {
+          logger.info(s"[Step 5] 操作日志记录成功")
+        } else {
+          val errorMessage = "[Step 5] 操作日志记录失败"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
+      }
     } yield "移除预选成功！"
   }
 }
