@@ -632,21 +632,19 @@ case object CourseSelectionProcess {
       logRecorded <- {
         val isValidLog = isValidStudent && isValidAction && validCourseInfo
         if (isValidLog) {
-          val timestamp <- IO { DateTime.now() }
-          val logInsertSQL <- IO {
+          val timestamp = DateTime.now() // 修复错误：在for comprehension外部生成timestamp，避免使用<-赋值
+          val logInsertSQL =
             s"""
             INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
             VALUES (?, ?, ?, ?)
-            """
-          }
-          val params <- IO {
+            """ // 修复错误：在for comprehension外部生成logInsertSQL，避免使用<-赋值
+          val params =
             List(
               SqlParameter("DateTime", timestamp.getMillis.toString),
               SqlParameter("Int", studentID.toString),
               SqlParameter("String", action),
               SqlParameter("String", details)
-            )
-          }
+            ) // 修复错误：在for comprehension外部生成params，避免使用<-赋值
           writeDB(logInsertSQL, params).map(_ => {
             logger.info("选课操作日志记录成功")
             true
