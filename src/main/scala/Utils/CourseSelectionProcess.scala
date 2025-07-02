@@ -23,6 +23,7 @@ import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import Common.API.PlanContext
 import cats.implicits._
+import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 
 case object CourseSelectionProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -92,7 +93,9 @@ case object CourseSelectionProcess {
       // 如果课程无效，直接返回错误
       _ <- if (!validCourse) {
         IO.raiseError(new IllegalArgumentException(s"课程ID=${courseID}无效，请检查输入参数"))
-      } else IO.unit
+      } else {
+        IO.unit
+      }
   
       // 验证学生是否在指定课程的WaitingList中
       studentInWaitingList <- readDBJsonOptional(
@@ -110,7 +113,9 @@ case object CourseSelectionProcess {
       // 如果学生不在等待名单中，直接返回错误
       _ <- if (!studentInWaitingList) {
         IO.raiseError(new IllegalArgumentException(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中，无法移除"))
-      } else IO.unit
+      } else {
+        IO.unit
+      }
   
       // 从数据库删除该学生
       deleteResult <- writeDB(
