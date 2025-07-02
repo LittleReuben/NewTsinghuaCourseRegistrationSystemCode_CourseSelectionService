@@ -390,7 +390,7 @@ case object CourseSelectionProcess {
               SqlParameter("Int", courseID.toString),
               SqlParameter("Int", firstStudentID.toString)
             )
-            writeDB(insertSelectionQuery, insertSelectionParams).unsafeRunSync()
+            writeDB(insertSelectionQuery, insertSelectionParams).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
   
             // Step 3.3: 从 Waiting List 移除第一名学生
             val removeWaitingStudentQuery =
@@ -402,7 +402,7 @@ case object CourseSelectionProcess {
               SqlParameter("Int", courseID.toString),
               SqlParameter("Int", firstStudentID.toString)
             )
-            writeDB(removeWaitingStudentQuery, removeWaitingStudentParams).unsafeRunSync()
+            writeDB(removeWaitingStudentQuery, removeWaitingStudentParams).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
   
             // 更新剩余学生的 position
             val updatePositionParams: List[ParameterList] = waitingList.tail.zipWithIndex.map { case (record, idx) =>
@@ -423,7 +423,7 @@ case object CourseSelectionProcess {
   WHERE course_id = ? AND student_id = ?
   """.stripMargin
             if (updatePositionParams.nonEmpty) {
-              writeDBList(updatePositionSQL, updatePositionParams).unsafeRunSync()
+              writeDBList(updatePositionSQL, updatePositionParams).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
             }
           }
       } else {
@@ -441,6 +441,8 @@ case object CourseSelectionProcess {
   
     } yield s"操作成功：学生ID ${studentID} 从课程ID ${courseID} 的选上列表中移除"
   }
+  
+  // 模型修复的原因: 原代码中使用 unsafeRunSync 方法报错，因为需要 cats.effect.IORuntime 的隐式作用域。修复方式为添加 `import cats.effect.unsafe.implicits.global` 来提供默认的 IORuntime 实现，并保证调用 unsafeRunSync 方法时正常运行。
   
   def checkCurrentPhase()(using PlanContext): IO[Phase] = {
   // val logger = LoggerFactory.getLogger("checkCurrentPhase")  // 同文后端处理: logger 统一
