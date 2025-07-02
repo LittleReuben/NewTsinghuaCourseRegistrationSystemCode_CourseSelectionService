@@ -25,6 +25,10 @@ import Common.API.PlanContext
 import cats.implicits._
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Common.Object.{SqlParameter, ParameterList}
+import APIs.UserAuthService.VerifyTokenValidityMessage
+import APIs.UserAccountService.QuerySafeUserInfoByTokenMessage
+import Objects.UserAccountService.UserRole
+import Objects.UserAccountService.SafeUserInfo
 
 case object CourseSelectionProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -485,31 +489,51 @@ case object CourseSelectionProcess {
     } yield phase
   }
   
-  
   def validateTeacherToken(teacherToken: String)(using PlanContext): IO[Option[Int]] = {
   // val logger = LoggerFactory.getLogger("validateTeacherToken")  // 同文后端处理: logger 统一
-  
+    
     for {
-      // Step 1: Decode the token
-      _ <- IO(logger.info(s"开始解析老师Token: ${teacherToken}"))
-      decodedTeacherIdOpt <- parseTeacherToken(teacherToken).send // 调用解析工具，返回的可能是 Option[Int]
+      // Step 1: 验证 token 的有效性
+      _ <- IO(logger.info(s"开始验证传入的教师 token: ${teacherToken}"))
+      isTokenValid <- VerifyTokenValidityMessage(teacherToken).send
   
-      // Step 1.2: Log and handle invalid token
-      result <- decodedTeacherIdOpt match {
-        case Some(teacherID) =>
-          // Step 2: Log authentication success and record the operation log
-          for {
-            _ <- IO(logger.info(s"Token解析成功，TeacherID: ${teacherID}"))
-            _ <- recordTeacherAuthLog(teacherID).send
-            _ <- IO(logger.info(s"Teacher鉴权日志记录成功，TeacherID: ${teacherID}"))
-          } yield Some(teacherID)
-        case None =>
-          // Step 1.2: Record failure and return None
-          IO {
-            logger.warn(s"Token解析失败或无效，返回None")
-            None
-          }
+      _ <- IO {
+        if (!isTokenValid) logger.warn(s"教师 token 无效或已过期: ${teacherToken}")
       }
+  
+      // 如果 token 无效，直接返回 None
+      result <- if (!isTokenValid) IO.pure(None)
+                else {
+                  for {
+                    // Step 2: 通过 token 查询用户账户的详细信息
+                    _ <- IO(logger.info(s"验证有效 token 开始获取用户信息: ${teacherToken}"))
+                    userInfoOption <- QuerySafeUserInfoByTokenMessage(teacherToken).send
+  
+                    _ <- IO(logger.info(s"用户信息查询结果: ${userInfoOption}"))
+                    
+                    // 如果未找到用户信息，返回 None
+                    result <- userInfoOption match {
+                      case None =>
+                        for {
+                          _ <- IO(logger.warn(s"通过 token 获取不到任何用户信息: ${teacherToken}"))
+                        } yield None
+  
+                      case Some(userInfo) =>
+                        for {
+                          _ <- IO(logger.info(s"解析用户信息, ID: ${userInfo.userID}, 角色: ${userInfo.role}"))
+  
+                          // 如果角色不是 Teacher，返回 None
+                          teacherID <- if (userInfo.role != UserRole.Teacher) {
+                            IO(logger.warn(s"用户角色不是教师: ${userInfo.role}, token: ${teacherToken}")) >>
+                            IO.pure(None)
+                          } else {
+                            IO(logger.info(s"用户角色是教师, ID 为: ${userInfo.userID}")) >>
+                            IO.pure(Some(userInfo.userID))
+                          }
+                        } yield teacherID
+                    }
+                  } yield result
+                }
     } yield result
   }
   
