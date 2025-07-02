@@ -24,6 +24,7 @@ import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import Common.API.PlanContext
 import cats.implicits._
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
+import Common.Object.{SqlParameter, ParameterList}
 
 case object CourseSelectionProcess {
   private val logger = LoggerFactory.getLogger(getClass)
