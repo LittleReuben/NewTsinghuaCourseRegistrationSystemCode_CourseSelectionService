@@ -11,11 +11,11 @@ enum Rating(val desc: String):
 
   override def toString: String = this.desc
 
-  case One extends Rating("评分为1分") // 评分为1分
-  case Two extends Rating("评分为2分") // 评分为2分
-  case Three extends Rating("评分为3分") // 评分为3分
-  case Four extends Rating("评分为4分") // 评分为4分
-  case Five extends Rating("评分为5分") // 评分为5分
+  case One extends Rating("1") // 1
+  case Two extends Rating("2") // 2
+  case Three extends Rating("3") // 3
+  case Four extends Rating("4") // 4
+  case Five extends Rating("5") // 5
 
 
 object Rating:
@@ -24,27 +24,27 @@ object Rating:
   given decode: Decoder[Rating] = Decoder.decodeString.emap(fromStringEither)
 
   def fromString(s: String):Rating  = s match
-    case "评分为1分" => One
-    case "评分为2分" => Two
-    case "评分为3分" => Three
-    case "评分为4分" => Four
-    case "评分为5分" => Five
+    case "1" => One
+    case "2" => Two
+    case "3" => Three
+    case "4" => Four
+    case "5" => Five
     case _ => throw Exception(s"Unknown Rating: $s")
 
   def fromStringEither(s: String):Either[String, Rating]  = s match
-    case "评分为1分" => Right(One)
-    case "评分为2分" => Right(Two)
-    case "评分为3分" => Right(Three)
-    case "评分为4分" => Right(Four)
-    case "评分为5分" => Right(Five)
+    case "1" => Right(One)
+    case "2" => Right(Two)
+    case "3" => Right(Three)
+    case "4" => Right(Four)
+    case "5" => Right(Five)
     case _ => Left(s"Unknown Rating: $s")
 
   def toString(t: Rating): String = t match
-    case One => "评分为1分"
-    case Two => "评分为2分"
-    case Three => "评分为3分"
-    case Four => "评分为4分"
-    case Five => "评分为5分"
+    case One => "1"
+    case Two => "2"
+    case Three => "3"
+    case Four => "4"
+    case Five => "5"
 
 
 // Jackson 序列化器

@@ -11,8 +11,8 @@ enum Phase(val desc: String):
 
   override def toString: String = this.desc
 
-  case Phase1 extends Phase("设立课程并预选阶段") // 设立课程并预选阶段
-  case Phase2 extends Phase("正选并补退选阶段") // 正选并补退选阶段
+  case Phase1 extends Phase("phase1") // phase1
+  case Phase2 extends Phase("phase2") // phase2
 
 
 object Phase:
@@ -21,18 +21,18 @@ object Phase:
   given decode: Decoder[Phase] = Decoder.decodeString.emap(fromStringEither)
 
   def fromString(s: String):Phase  = s match
-    case "设立课程并预选阶段" => Phase1
-    case "正选并补退选阶段" => Phase2
+    case "phase1" => Phase1
+    case "phase2" => Phase2
     case _ => throw Exception(s"Unknown Phase: $s")
 
   def fromStringEither(s: String):Either[String, Phase]  = s match
-    case "设立课程并预选阶段" => Right(Phase1)
-    case "正选并补退选阶段" => Right(Phase2)
+    case "phase1" => Right(Phase1)
+    case "phase2" => Right(Phase2)
     case _ => Left(s"Unknown Phase: $s")
 
   def toString(t: Phase): String = t match
-    case Phase1 => "设立课程并预选阶段"
-    case Phase2 => "正选并补退选阶段"
+    case Phase1 => "phase1"
+    case Phase2 => "phase2"
 
 
 // Jackson 序列化器

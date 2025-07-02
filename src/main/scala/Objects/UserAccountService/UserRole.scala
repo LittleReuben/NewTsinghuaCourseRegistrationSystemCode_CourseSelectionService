@@ -11,9 +11,9 @@ enum UserRole(val desc: String):
 
   override def toString: String = this.desc
 
-  case SuperAdmin extends UserRole("超级管理员角色") // 超级管理员角色
-  case Teacher extends UserRole("教师角色") // 教师角色
-  case Student extends UserRole("学生角色") // 学生角色
+  case SuperAdmin extends UserRole("admin") // admin
+  case Teacher extends UserRole("teacher") // teacher
+  case Student extends UserRole("student") // student
 
 
 object UserRole:
@@ -22,21 +22,21 @@ object UserRole:
   given decode: Decoder[UserRole] = Decoder.decodeString.emap(fromStringEither)
 
   def fromString(s: String):UserRole  = s match
-    case "超级管理员角色" => SuperAdmin
-    case "教师角色" => Teacher
-    case "学生角色" => Student
+    case "admin" => SuperAdmin
+    case "teacher" => Teacher
+    case "student" => Student
     case _ => throw Exception(s"Unknown UserRole: $s")
 
   def fromStringEither(s: String):Either[String, UserRole]  = s match
-    case "超级管理员角色" => Right(SuperAdmin)
-    case "教师角色" => Right(Teacher)
-    case "学生角色" => Right(Student)
+    case "admin" => Right(SuperAdmin)
+    case "teacher" => Right(Teacher)
+    case "student" => Right(Student)
     case _ => Left(s"Unknown UserRole: $s")
 
   def toString(t: UserRole): String = t match
-    case SuperAdmin => "超级管理员角色"
-    case Teacher => "教师角色"
-    case Student => "学生角色"
+    case SuperAdmin => "admin"
+    case Teacher => "teacher"
+    case Student => "student"
 
 
 // Jackson 序列化器

@@ -11,13 +11,13 @@ enum DayOfWeek(val desc: String):
 
   override def toString: String = this.desc
 
-  case Monday extends DayOfWeek("星期一") // 星期一
-  case Tuesday extends DayOfWeek("星期二") // 星期二
-  case Wednesday extends DayOfWeek("星期三") // 星期三
-  case Thursday extends DayOfWeek("星期四") // 星期四
-  case Friday extends DayOfWeek("星期五") // 星期五
-  case Saturday extends DayOfWeek("星期六") // 星期六
-  case Sunday extends DayOfWeek("星期日") // 星期日
+  case Monday extends DayOfWeek("Monday") // Monday
+  case Tuesday extends DayOfWeek("Tuesday") // Tuesday
+  case Wednesday extends DayOfWeek("Wednesday") // Wednesday
+  case Thursday extends DayOfWeek("Thursday") // Thursday
+  case Friday extends DayOfWeek("Friday") // Friday
+  case Saturday extends DayOfWeek("Saturday") // Saturday
+  case Sunday extends DayOfWeek("Sunday") // Sunday
 
 
 object DayOfWeek:
@@ -26,33 +26,33 @@ object DayOfWeek:
   given decode: Decoder[DayOfWeek] = Decoder.decodeString.emap(fromStringEither)
 
   def fromString(s: String):DayOfWeek  = s match
-    case "星期一" => Monday
-    case "星期二" => Tuesday
-    case "星期三" => Wednesday
-    case "星期四" => Thursday
-    case "星期五" => Friday
-    case "星期六" => Saturday
-    case "星期日" => Sunday
+    case "Monday" => Monday
+    case "Tuesday" => Tuesday
+    case "Wednesday" => Wednesday
+    case "Thursday" => Thursday
+    case "Friday" => Friday
+    case "Saturday" => Saturday
+    case "Sunday" => Sunday
     case _ => throw Exception(s"Unknown DayOfWeek: $s")
 
   def fromStringEither(s: String):Either[String, DayOfWeek]  = s match
-    case "星期一" => Right(Monday)
-    case "星期二" => Right(Tuesday)
-    case "星期三" => Right(Wednesday)
-    case "星期四" => Right(Thursday)
-    case "星期五" => Right(Friday)
-    case "星期六" => Right(Saturday)
-    case "星期日" => Right(Sunday)
+    case "Monday" => Right(Monday)
+    case "Tuesday" => Right(Tuesday)
+    case "Wednesday" => Right(Wednesday)
+    case "Thursday" => Right(Thursday)
+    case "Friday" => Right(Friday)
+    case "Saturday" => Right(Saturday)
+    case "Sunday" => Right(Sunday)
     case _ => Left(s"Unknown DayOfWeek: $s")
 
   def toString(t: DayOfWeek): String = t match
-    case Monday => "星期一"
-    case Tuesday => "星期二"
-    case Wednesday => "星期三"
-    case Thursday => "星期四"
-    case Friday => "星期五"
-    case Saturday => "星期六"
-    case Sunday => "星期日"
+    case Monday => "Monday"
+    case Tuesday => "Tuesday"
+    case Wednesday => "Wednesday"
+    case Thursday => "Thursday"
+    case Friday => "Friday"
+    case Saturday => "Saturday"
+    case Sunday => "Sunday"
 
 
 // Jackson 序列化器
