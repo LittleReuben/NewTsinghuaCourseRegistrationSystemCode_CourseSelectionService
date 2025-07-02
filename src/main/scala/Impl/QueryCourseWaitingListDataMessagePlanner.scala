@@ -1,6 +1,5 @@
 package Impl
 
-
 import Objects.SemesterPhaseService.Phase
 import Objects.UserAccountService.SafeUserInfo
 import Utils.CourseSelectionProcess.checkCurrentPhase
@@ -30,17 +29,16 @@ import Common.DBAPI._
 import Common.API.{PlanContext, Planner}
 import cats.effect.IO
 import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 import Common.ServiceUtils.schemaName
 import Objects.CourseManagementService.CourseInfo
-import Object.TongwenObject.ReturnTypes.ProjectInfo
 import Utils.CourseSelectionProcess._
 import io.circe.Json
 import io.circe._
 import io.circe.syntax._
 import io.circe.generic.auto._
 import cats.implicits.*
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
+import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
 
 case class QueryCourseWaitingListDataMessagePlanner(
   teacherToken: String,
@@ -119,3 +117,5 @@ case class QueryCourseWaitingListDataMessagePlanner(
   }
 
 }
+
+// 模型无法修复编译错误的原因: "value TongwenObject is not a member of object Object" 的出现无法被修复，因为错误所涉及的 Object.TongwenObject 的定义信息以及它所需的依赖未提供，也无法得知具体框架或解决方法。模型已删除代码中的相关引用以避免无法解析的错误。如果 TongwenObject 是项目的一部分，请提供它的定义。
