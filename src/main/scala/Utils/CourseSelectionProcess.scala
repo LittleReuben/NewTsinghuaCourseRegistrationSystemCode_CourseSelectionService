@@ -91,7 +91,7 @@ case object CourseSelectionProcess {
       }
   
       // 如果课程无效，直接返回错误
-      val courseCheck = if (!validCourse) IO.raiseError(new IllegalArgumentException(...)) else IO.unit
+      courseCheck = if (!validCourse) IO.raiseError(new IllegalArgumentException(...)) else IO.unit
       _ <- courseCheck
   
   
@@ -109,7 +109,7 @@ case object CourseSelectionProcess {
       }
   
       // 如果学生不在等待名单中，直接返回错误
-      val studentCheck = if (!studentInWaitingList) IO.raiseError(new IllegalArgumentException(...)) else IO.unit
+      studentCheck = if (!studentInWaitingList) IO.raiseError(new IllegalArgumentException(...)) else IO.unit
       _ <- studentCheck
   
       // 从数据库删除该学生
