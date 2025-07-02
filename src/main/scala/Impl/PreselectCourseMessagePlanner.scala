@@ -58,11 +58,9 @@ case class PreselectCourseMessagePlanner(
       _ <- IO(logger.info(s"验证当前阶段是否允许预选课程"))
       currentPhaseOpt <- checkCurrentPhase()
       currentPhase <- currentPhaseOpt match {
-        case Some(phase) if phase.toString == "Phase1" => IO(phase)
-        case Some(phase) =>
+        case phase if phase.toString == "Phase1" => IO(phase) // 修复编译错误，Phase与None不能直接比较，改用Phase的toString方法进行字符串比较
+        case _ =>
           IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
-        case None =>
-          IO.raiseError(new IllegalStateException("无法确定当前阶段。"))
       }
 
       // Step 4: Course conflict validation
@@ -93,4 +91,3 @@ case class PreselectCourseMessagePlanner(
     } yield "预选成功！"
   }
 }
-// 修复编译错误的原因: 比较 Objects.SemesterPhaseService.Phase 枚举类与字符串时，必须通过 phase.toString 的方式将 Phase 枚举转为字符串。
