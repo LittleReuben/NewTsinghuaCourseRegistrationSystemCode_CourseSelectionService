@@ -59,7 +59,7 @@ case class PreselectCourseMessagePlanner(
       currentPhaseOpt <- checkCurrentPhase()
       currentPhase <- currentPhaseOpt match {
         case Some(phase) if phase.toString == "Phase1" => IO(phase)
-        case Some(_) =>
+        case Some(phase) =>
           IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
         case None =>
           IO.raiseError(new IllegalStateException("无法确定当前阶段。"))
@@ -93,4 +93,4 @@ case class PreselectCourseMessagePlanner(
     } yield "预选成功！"
   }
 }
-// 修复编译错误的原因: 在 `checkCurrentPhase` 返回的 `Phase` 枚举类中，与字符串比较时直接使用其 `toString` 方法，而不是简单进行 `==` 比较（因为无法直接比较 `Phase` 枚举类与 `String` 类型）
+// 修复编译错误的原因: 比较 Objects.SemesterPhaseService.Phase 枚举类与字符串时，必须通过 phase.toString 的方式将 Phase 枚举转为字符串。
