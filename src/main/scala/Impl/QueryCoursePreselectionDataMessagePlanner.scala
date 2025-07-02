@@ -67,7 +67,7 @@ case class QueryCoursePreselectionDataMessagePlanner(
     } yield preselectionData
   }
 
-  private def validateTeacherID(using PlanContext): IO[Int] = {
+  private def validateTeacherID()(using PlanContext): IO[Int] = {
     validateTeacherToken(teacherToken).flatMap {
       case Some(teacherID) => IO.pure(teacherID)
       case None =>
