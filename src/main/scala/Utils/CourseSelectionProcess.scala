@@ -234,7 +234,6 @@ case object CourseSelectionProcess {
       )
     } yield courseInfo
   }
-  
   def validateStudentCourseTimeConflict(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
   
     for {
@@ -277,9 +276,7 @@ case object CourseSelectionProcess {
       // 获取待检查课程详细信息
       newCourse <- fetchCourseInfoByID(courseID)
       newCourseTime <- IO {
-        val courseTime = newCourse.flatMap(_.time)
-        if (courseTime.isEmpty) logger.warn(s"待选课程ID ${courseID} 的时间信息为空或无效！")
-        courseTime
+        newCourse.map(_.time).getOrElse(List.empty[CourseTime]) // 修复编译错误，防止 None 返回时导致类型不匹配
       }
   
       // 检查选课冲突
@@ -289,7 +286,7 @@ case object CourseSelectionProcess {
             val existingCourseTimes = existingCourse.time
             val isConflict = existingCourseTimes.exists(oldTime =>
               newCourseTime.exists(newTime =>
-                oldTime.dayOfWeek == newTime.dayOfWeek &&
+                oldTime.dayOfWeek == newTime.dayOfWeek && // 修复编译错误，确保 newTime 确定为 CourseTime 类型
                   oldTime.timePeriod == newTime.timePeriod
               )
             )
