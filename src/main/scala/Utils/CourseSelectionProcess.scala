@@ -12,11 +12,8 @@ import Common.API.{PlanContext, Planner}
 import Common.Object.SqlParameter
 import cats.effect.IO
 import Objects.SemesterPhaseService.Phase
-import Utils.CourseSelectionProcess.checkCurrentPhase
 import Objects.CourseManagementService.CourseTime
-import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Objects.SystemLogService.SystemLogEntry
-import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Objects.CourseManagementService.DayOfWeek
 import Objects.CourseManagementService.TimePeriod
 import Objects.CourseManagementService.CourseInfo
