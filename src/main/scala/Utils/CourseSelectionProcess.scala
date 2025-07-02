@@ -91,7 +91,7 @@ case object CourseSelectionProcess {
       }
   
       // 如果课程无效，直接返回错误
-      courseCheck = if (!validCourse) IO.raiseError(new IllegalArgumentException(s"课程ID=${courseID}无效，请检查输入参数")) else IO.unit
+      val courseCheck = if (!validCourse) IO.raiseError(new IllegalArgumentException(s"课程ID=${courseID}无效，请检查输入参数")) else IO.unit
       _ <- courseCheck
   
   
@@ -109,7 +109,7 @@ case object CourseSelectionProcess {
       }
   
       // 如果学生不在等待名单中，直接返回错误
-      studentCheck = if (!studentInWaitingList) IO.raiseError(new IllegalArgumentException(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中，无法移除")) else IO.unit
+      val studentCheck = if (!studentInWaitingList) IO.raiseError(new IllegalArgumentException(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中，无法移除")) else IO.unit
       _ <- studentCheck
   
       // 从数据库删除该学生
