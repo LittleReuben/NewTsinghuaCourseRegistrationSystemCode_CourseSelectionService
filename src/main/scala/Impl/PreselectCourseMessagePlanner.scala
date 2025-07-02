@@ -1,6 +1,5 @@
 package Impl
 
-
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
@@ -23,19 +22,6 @@ import io.circe.generic.auto._
 import org.joda.time.DateTime
 import cats.implicits.*
 import Common.Serialize.CustomColumnTypes.{decodeDateTime, encodeDateTime}
-import io.circe._
-import io.circe.syntax._
-import io.circe.generic.auto._
-import org.joda.time.DateTime
-import cats.implicits.*
-import Common.DBAPI._
-import Common.API.{PlanContext, Planner}
-import cats.effect.IO
-import Common.Object.SqlParameter
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
-import Common.ServiceUtils.schemaName
-import Objects.CourseManagementService.CourseInfo
-import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
 case class PreselectCourseMessagePlanner(
   studentToken: String,
@@ -70,10 +56,14 @@ case class PreselectCourseMessagePlanner(
 
       // Step 3: Validate current phase
       _ <- IO(logger.info(s"验证当前阶段是否允许预选课程"))
-      currentPhase <- checkCurrentPhase()
-      _ <- if (currentPhase != "Phase1")
-        IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
-      else IO.unit
+      currentPhaseOpt <- checkCurrentPhase()
+      currentPhase <- currentPhaseOpt match {
+        case Some(phase) if phase.toString == "Phase1" => IO(phase)
+        case Some(_) =>
+          IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
+        case None =>
+          IO.raiseError(new IllegalStateException("无法确定当前阶段。"))
+      }
 
       // Step 4: Course conflict validation
       _ <- IO(logger.info(s"检测预选此课程是否与已选课程时间冲突"))
@@ -103,3 +93,4 @@ case class PreselectCourseMessagePlanner(
     } yield "预选成功！"
   }
 }
+// 修复编译错误的原因: 在 `checkCurrentPhase` 返回的 `Phase` 枚举类中，与字符串比较时直接使用其 `toString` 方法，而不是简单进行 `==` 比较（因为无法直接比较 `Phase` 枚举类与 `String` 类型）
