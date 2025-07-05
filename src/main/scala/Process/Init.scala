@@ -43,7 +43,7 @@ object Init {
       _ <- writeDB(
         s"""
         CREATE TABLE IF NOT EXISTS "${schemaName}"."course_preselection_table" (
-            course_id SERIAL NOT NULL PRIMARY KEY,
+            course_id INT NOT NULL,
             student_id INT NOT NULL
         );
          
