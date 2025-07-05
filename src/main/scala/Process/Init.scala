@@ -22,27 +22,27 @@ object Init {
       _ <- API.init(config.maximumClientConnection)
       _ <- Common.DBAPI.SwitchDataSourceMessage(projectName = Global.ServiceCenter.projectName).send
       _ <- initSchema(schemaName)
-            /** 存储课程预选阶段的课程和学生关系
-       * course_id: 课程ID，关联到CourseTable中的course_id
-       * student_id: 学生ID
-       */
-      _ <- writeDB(
-        s"""
-        CREATE TABLE IF NOT EXISTS "${schemaName}"."course_preselection_table" (
-            course_id SERIAL NOT NULL PRIMARY KEY,
-            student_id INT NOT NULL
-        );
-         
-        """,
-        List()
-      )
-      /** 课程参与历史表，记录学生参与课程的历史
+            /** 课程参与历史表，记录学生参与课程的历史
        * course_id: 课程ID，关联到CourseTable中的course_id
        * student_id: 学生ID
        */
       _ <- writeDB(
         s"""
         CREATE TABLE IF NOT EXISTS "${schemaName}"."course_participation_history_table" (
+            course_id INT NOT NULL,
+            student_id INT NOT NULL
+        );
+         
+        """,
+        List()
+      )
+      /** 存储课程预选阶段的课程和学生关系
+       * course_id: 课程ID，关联到CourseTable中的course_id
+       * student_id: 学生ID
+       */
+      _ <- writeDB(
+        s"""
+        CREATE TABLE IF NOT EXISTS "${schemaName}"."course_preselection_table" (
             course_id SERIAL NOT NULL PRIMARY KEY,
             student_id INT NOT NULL
         );
