@@ -262,7 +262,7 @@ case object CourseSelectionProcess {
               SqlParameter("DateTime", timestamp.getMillis.toString),
               SqlParameter("Int", studentID.toString),
               SqlParameter("String", action),
-              SqlParameter("String", details)
+              SqlParameter("String", detailsWithCourse)
             ) // 修复错误：在for comprehension外部生成params，避免使用<-赋值
           writeDB(logInsertSQL, params).map(_ => {
             logger.info("选课操作日志记录成功")
