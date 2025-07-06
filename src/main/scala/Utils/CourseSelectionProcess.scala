@@ -471,7 +471,7 @@ case object CourseSelectionProcess {
   
     for {
       // 获取当前阶段
-      phase <- readDBString("SELECT phase FROM ${schemaName}.system_config LIMIT 1", List())
+      phase <- checkCurrentPhase()
   
       // 查询当前学生已选课程的课程ID
       sqlQueryPhase1 <- IO {
