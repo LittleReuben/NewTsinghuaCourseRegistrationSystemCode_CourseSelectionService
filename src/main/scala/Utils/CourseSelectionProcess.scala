@@ -242,7 +242,7 @@ case object CourseSelectionProcess {
           IO(logger.info("课程ID未提供，跳过验证")).as(true)
       }
   
-      detailsWithCourse <- opt match { 
+      detailsWithCourse <- CourseID match { 
         case Some(ID) => s"课程ID=${ID}:${details}"
         case None => details
       }
