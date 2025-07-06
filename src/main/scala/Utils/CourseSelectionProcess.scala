@@ -594,7 +594,7 @@ case object CourseSelectionProcess {
       // Step 3: 判断角色并获取学生ID
       studentIDOpt = studentInfoOpt.flatMap { userInfo =>
         // 修复逻辑：直接使用Option字段进行校验和获取
-        if (userInfo.role == "student") Some(userInfo.userID) else None
+        if (userInfo.role == UserRole.Student) Some(userInfo.userID) else None
       }
   
       _ <- IO {
