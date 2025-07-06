@@ -43,34 +43,15 @@ case object CourseSelectionProcess {
       // Fetch SemesterPhase object and read currentPhase field
       query <- IO(s"SELECT current_phase FROM ${schemaName}.semester_phase_table;")
       _ <- IO(logger.info(s"[checkCurrentPhase] 执行查询: ${query}"))
-      json <- readDBJson(query, List())
+      currentPhaseInt <- readDBInt(query, List())
+      _ <- IO(logger.info(s"[checkCurrentPhase] 从数据库中读取到current_phase字段值: ${currentPhaseInt}"))
   
-      currentPhaseString <- IO {
-        val phase = decodeField[String](json, "current_phase")
-        logger.info(s"[checkCurrentPhase] 从数据库中读取到current_phase字段值: ${phase}")
-        phase
-      }
-  
-      // Convert currentPhase string to Phase enum
+      // Convert currentPhase int to Phase enum
       phase <- IO {
-        val phaseEnum = Phase.fromString(currentPhaseString)
+        val phaseEnum = Phase.fromString(currentPhaseInt.toString)
         logger.info(s"[checkCurrentPhase] 将current_phase转换为 Phase 枚举值: ${phaseEnum}")
         phaseEnum
       }
-  
-      // Log the operation using SystemLogEntry
-      _ <- {
-        val logEntry = SystemLogEntry(
-          logID = 0, // Placeholder as we don't generate logID here
-          timestamp = DateTime.now,
-          userID = 0, // Placeholder as no userID context is provided
-          action = "CheckCurrentPhase",
-          details = s"检查当前学期阶段, 当前阶段: ${phase.toString}"
-        )
-        IO(logger.info(s"[checkCurrentPhase] 创建 SystemLogEntry: ${logEntry.toString}"))>>
-        IO.unit // Placeholder to indicate logging action; actual persistence is not implemented here
-      }
-      
     } yield phase
   }
   
