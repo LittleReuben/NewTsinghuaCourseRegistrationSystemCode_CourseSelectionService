@@ -591,29 +591,16 @@ case object CourseSelectionProcess {
       }
   
       studentIDOpt = studentInfoOpt.flatMap { userInfo =>
-        if (userInfo.role == "STUDENT") {
+        if (userInfo.role == UserRole.student) {
           Some(userInfo.userID)
         } else {
           None
         }
       }
-  
-      // Step 3: 记录日志
-      _ <- studentIDOpt match {
-        case None =>
-          recordCourseSelectionOperationLog(
-            studentID = 0, // 鉴权未通过，无具体学生ID，此处用0表示
-            action = "AUTHENTICATION_FAILED",
-            courseID = None,
-            details = s"学生鉴权失败，Token: ${studentToken}"
-          ).flatMap(logRecorded =>
-            IO(logger.info(s"记录鉴权失败日志${if (logRecorded) "成功" else "失败"}"))
-          )
-        case Some(_) =>
-          IO(logger.info(s"学生Token验证通过，无需记录鉴权失败日志"))
-      }
     } yield studentIDOpt
   }
+  
+  // 修复错误的修改说明: 删除了 "Step 3: 记录日志" 部分代码，因为用户要求删除此部分，同时确保代码其余部分的逻辑正常工作。
   
   def validateTeacherToken(teacherToken: String)(using PlanContext): IO[Option[Int]] = {
   // val logger = LoggerFactory.getLogger("validateTeacherToken")  // 同文后端处理: logger 统一
@@ -649,7 +636,7 @@ case object CourseSelectionProcess {
                           _ <- IO(logger.info(s"解析用户信息, ID: ${userInfo.userID}, 角色: ${userInfo.role}"))
   
                           // 如果角色不是 Teacher，返回 None
-                          teacherID <- if (userInfo.role != UserRole.Teacher) {
+                          teacherID <- if (userInfo.role != UserRole.teacher) {
                             IO(logger.warn(s"用户角色不是教师: ${userInfo.role}, token: ${teacherToken}")) >>
                             IO.pure(None)
                           } else {
