@@ -1,6 +1,5 @@
 package Impl
 
-
 import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
@@ -73,19 +72,19 @@ case class RemovePreselectedCourseMessagePlanner(
       }
       _ <- IO(logger.info(s"[Step 2] 课程ID存在: ${courseID}"))
 
-      // Step 3: Check current phase
-      _ <- IO(logger.info("[Step 3] 检查当前学期阶段"))
+      // Step 3: Validate current phase
+      _ <- IO(logger.info("[Step 3] 验证当前阶段是否允许移除预选课程"))
       currentPhase <- checkCurrentPhase()
-
-      // Edited by Alex_Wei on 7.6: 'checkIsDropAllowed' is in phase 2, there is no need to check it.
-      // isDropAllowed <- checkIsDropAllowed()
       _ <- IO {
-        if (currentPhase != Phase.Phase1 /*|| ! isDropAllowed*/ ) {
-          val errorMessage = "当前阶段不允许移除预选课程"
-          logger.error(errorMessage)
-          throw new IllegalStateException(errorMessage)
-        }
+        if (currentPhase != Phase.Phase1)
+          throw new IllegalArgumentException("[Step 3] 当前阶段下不允许预选课程！")
       }
+
+      // Edited by Alex_Wei on 7.6: checkIsDropAllowed -> checkIsRemovePreselectionAllowed
+      removeAllowed <- checkIsRemovePreselectionAllowed()
+      _ <- if (!removeAllowed)
+        IO.raiseError(new IllegalArgumentException("[Step 3] 当前状态下不允许移除预选课程！"))
+      else IO.unit
       _ <- IO(logger.info("[Step 3] 当前阶段允许移除预选课程"))
 
       // Step 4: Remove preselected course record

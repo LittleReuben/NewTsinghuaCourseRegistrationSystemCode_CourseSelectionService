@@ -80,18 +80,21 @@ case object CourseSelectionProcess {
         WHERE current_phase = ?
         """
       }
-      permissionParams <- IO(List(SqlParameter("String", currentPhase.toString)))
+      permissionParams <- IO(List(SqlParameter("Int", currentPhase match {
+        case Phase.Phase1 => "1"
+        case Phase.Phase2 => "2"
+      })))
       allowStudentSelect <- readDBBoolean(permissionQuery, permissionParams)
       _ <- IO(logger.info(s"权限开关是否允许学生退课: ${allowStudentSelect}"))
   
       // Step 3: 根据权限和阶段状态判断是否允许退课
-      selectionAllowed <- IO {
+      dropAllowed <- IO {
         val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase2)
         logger.info(s"退课操作是否被允许: ${isAllowed}")
         isAllowed
       }
   
-    } yield selectionAllowed
+    } yield dropAllowed
   }
   
   def checkIsSelectionAllowed()(using PlanContext): IO[Boolean] = {
@@ -121,12 +124,83 @@ case object CourseSelectionProcess {
   
       // Step 3: 根据权限和阶段状态判断是否允许选课
       selectionAllowed <- IO {
-        val isAllowed = allowStudentSelect
+        // Edited on 7.6 by Alex_Wei: add check 'currentPhase == Phase.Phase2'.
+        val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase2)
         logger.info(s"选课操作是否被允许: ${isAllowed}")
         isAllowed
       }
   
     } yield selectionAllowed
+  }
+
+  def checkIsPreselectionAllowed()(using PlanContext): IO[Boolean] = {
+    // val logger = LoggerFactory.getLogger("checkIsPreselectionAllowed")  // 同文后端处理: logger 统一
+    logger.info("开始检查当前是否可以进行预选课操作")
+
+    for {
+      // Step 1: 查询当前学期阶段状态
+      _ <- IO(logger.info("调用checkCurrentPhase方法以获取当前学期阶段"))
+      currentPhase <- checkCurrentPhase()
+      _ <- IO(logger.info(s"当前学期阶段为: ${currentPhase}"))
+
+      // Step 2: 获取权限信息，并检查是否允许选课
+      permissionQuery <- IO {
+        s"""
+          SELECT allow_student_select
+          FROM ${schemaName}.semester_phase_table
+          WHERE current_phase = ?
+          """
+      }
+      permissionParams <- IO(List(SqlParameter("Int", currentPhase match {
+        case Phase.Phase1 => "1"
+        case Phase.Phase2 => "2"
+      })))
+      allowStudentSelect <- readDBBoolean(permissionQuery, permissionParams)
+      _ <- IO(logger.info(s"权限开关是否允许学生选课: ${allowStudentSelect}"))
+
+      // Step 3: 根据权限和阶段状态判断是否允许预选课
+      preselectionAllowed <- IO {
+        val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase1)
+        logger.info(s"预选课操作是否被允许: ${isAllowed}")
+        isAllowed
+      }
+
+    } yield preselectionAllowed
+  }
+
+  def checkIsRemovePreselectionAllowed()(using PlanContext): IO[Boolean] = {
+    // val logger = LoggerFactory.getLogger("checkIsRemovePreselectionAllowed")  // 同文后端处理: logger 统一  // 同文后端处理: logger 统一
+    logger.info("开始检查当前是否可以进行取消预选操作")
+
+    for {
+      // Step 1: 查询当前学期阶段状态
+      _ <- IO(logger.info("调用checkCurrentPhase方法以获取当前学期阶段"))
+      currentPhase <- checkCurrentPhase()
+      _ <- IO(logger.info(s"当前学期阶段为: ${currentPhase}"))
+
+      // Step 2: 获取权限信息，并检查是否允许退课
+      permissionQuery <- IO {
+        s"""
+          SELECT allow_student_drop
+          FROM ${schemaName}.semester_phase_table
+          WHERE current_phase = ?
+          """
+      }
+      permissionParams <- IO(List(SqlParameter("Int", currentPhase match {
+        case Phase.Phase1 => "1"
+        case Phase.Phase2 => "2"
+      })))
+      allowStudentSelect <- readDBBoolean(permissionQuery, permissionParams)
+      _ <- IO(logger.info(s"权限开关是否允许学生退课: ${allowStudentSelect}"))
+
+      // Step 3: 根据权限和阶段状态判断是否允许取消预选
+      removePreselectionAllowed <- IO {
+        val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase1)
+        logger.info(s"取消预选操作是否被允许: ${isAllowed}")
+        isAllowed
+      }
+
+    } yield removePreselectionAllowed
   }
   
   def fetchCourseInfoByID(courseID: Int)(using PlanContext): IO[Option[CourseInfo]] = {
@@ -215,7 +289,7 @@ case object CourseSelectionProcess {
     for {
       // 验证 action 是否符合选课操作范围
       // Edited by Alex_Wei on 7.6: Add "REMOVE_PRESELECTED_COURSE", "预选" -> "PRESELECT_COURSE", "退课" -> "DROP_COURSE", "选课" -> "SELECT_COURSE"
-      validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT", "REMOVE_PRESELECTED_COURSE") }
+      validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT_COURSE", "REMOVE_PRESELECTED_COURSE") }
       isValidAction <- IO { validActions.contains(action) }
       _ <- IO {
         if (!isValidAction)
@@ -469,7 +543,7 @@ case object CourseSelectionProcess {
     } yield s"学生ID=${studentID}成功移除课程ID=${courseID}的等待名单"
   }
   def validateStudentCourseTimeConflict(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
-  
+
     for {
       // 获取当前阶段
       phase <- checkCurrentPhase()
@@ -538,6 +612,8 @@ case object CourseSelectionProcess {
       }
   
       // 记录日志
+      // Edited on 7.6 by Alex_Wei: no need to record.
+      /*
       logDetails <- IO {
         if (isConflict) {
           s"课程冲突: 已选课程列表 ${currentCourseIDs.mkString(", ")} 与待选课程 ${courseID} 存在冲突"
@@ -554,6 +630,7 @@ case object CourseSelectionProcess {
       _ <- IO {
         logger.info(s"课程冲突检查日志记录${if (logResult) "成功" else "失败"}")
       }
+       */
     } yield isConflict
   }
   
