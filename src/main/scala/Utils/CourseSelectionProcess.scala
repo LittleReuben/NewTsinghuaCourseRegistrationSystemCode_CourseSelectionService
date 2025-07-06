@@ -493,7 +493,7 @@ case object CourseSelectionProcess {
         """
       }
       studentParam <- IO { SqlParameter("Int", studentID.toString) }
-      currentCourses <- if (phase == "1") {
+      currentCourses <- if (phase == Phase.Phase1) {
         readDBRows(sqlQueryPhase1, List(studentParam))
       } else {
         readDBRows(sqlQueryPhase2, List(studentParam, studentParam))
