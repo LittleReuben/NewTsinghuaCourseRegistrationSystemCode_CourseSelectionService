@@ -646,7 +646,7 @@ case object CourseSelectionProcess {
                           _ <- IO(logger.info(s"解析用户信息, ID: ${userInfo.userID}, 角色: ${userInfo.role}"))
   
                           // 如果角色不是 Teacher，返回 None
-                          teacherID <- if (userInfo.role != UserRole.teacher) {
+                          teacherID <- if (userInfo.role != UserRole.Teacher) {
                             IO(logger.warn(s"用户角色不是教师: ${userInfo.role}, token: ${teacherToken}")) >>
                             IO.pure(None)
                           } else {
