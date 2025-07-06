@@ -62,26 +62,36 @@ case object CourseSelectionProcess {
     } yield phase
   }
   
-  def checkIsDropAllowed(
-    currentPhase: Phase,
-    allowStudentDrop: Boolean
-  )(using PlanContext): IO[Boolean] = {
+  def checkIsDropAllowed()(using PlanContext): IO[Boolean] = {
   // val logger = LoggerFactory.getLogger("checkIsDropAllowed")  // 同文后端处理: logger 统一
-    for {
-      _ <- IO(logger.info(s"[checkIsDropAllowed] 开始检查是否允许退课操作"))
-      _ <- IO(logger.info(s"[checkIsDropAllowed] 当前阶段为: ${currentPhase}, 退课权限状态: ${allowStudentDrop}"))
+    logger.info("开始检查当前是否可以进行退课操作")
   
-      // 判断是否可以退课
-      isDropAllowed <- IO {
-        if (currentPhase == Phase.Phase2 && allowStudentDrop) {
-          logger.info("[checkIsDropAllowed] 当前阶段为退课阶段且退课权限已开启，可以退课")
-          true
-        } else {
-          logger.info("[checkIsDropAllowed] 当前阶段非退课阶段或退课权限未开启，不允许退课")
-          false
-        }
+    for {
+      // Step 1: 查询当前学期阶段状态
+      _ <- IO(logger.info("调用checkCurrentPhase方法以获取当前学期阶段"))
+      currentPhase <- checkCurrentPhase()
+      _ <- IO(logger.info(s"当前学期阶段为: ${currentPhase}"))
+  
+      // Step 2: 获取权限信息，并检查是否允许退课
+      permissionQuery <- IO {
+        s"""
+        SELECT allow_student_drop
+        FROM ${schemaName}.semester_phase_table
+        WHERE current_phase = ?
+        """
       }
-    } yield isDropAllowed
+      permissionParams <- IO(List(SqlParameter("String", currentPhase.toString)))
+      allowStudentSelect <- readDBBoolean(permissionQuery, permissionParams)
+      _ <- IO(logger.info(s"权限开关是否允许学生退课: ${allowStudentSelect}"))
+  
+      // Step 3: 根据权限和阶段状态判断是否允许退课
+      selectionAllowed <- IO {
+        val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase2)
+        logger.info(s"退课操作是否被允许: ${isAllowed}")
+        isAllowed
+      }
+  
+    } yield selectionAllowed
   }
   
   def checkIsSelectionAllowed()(using PlanContext): IO[Boolean] = {
