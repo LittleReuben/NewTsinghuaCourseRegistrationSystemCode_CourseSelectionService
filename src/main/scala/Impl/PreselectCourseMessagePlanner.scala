@@ -4,6 +4,7 @@ import Common.API.{PlanContext, Planner}
 import Common.DBAPI._
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
+import Objects.SemesterPhaseService.Phase
 import Objects.CourseManagementService.CourseTime
 import Objects.CourseManagementService.DayOfWeek
 import Objects.CourseManagementService.TimePeriod
