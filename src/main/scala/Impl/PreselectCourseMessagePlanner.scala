@@ -57,11 +57,10 @@ case class PreselectCourseMessagePlanner(
 
       // Step 3: Validate current phase
       _ <- IO(logger.info(s"验证当前阶段是否允许预选课程"))
-      currentPhaseOpt <- checkCurrentPhase()
-      _ <- currentPhaseOpt match {
-        case Some(phase) if phase.toString == "phase1" => IO.unit
-        case _ =>
-          IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
+      currentPhase <- checkCurrentPhase()
+      _ <- IO {
+        if (currentPhase != Phase.Phase1)
+          throw new IllegalArgumentException("当前阶段不允许退课。")
       }
 
       // Step 3.1: Ensure selection is allowed
