@@ -57,18 +57,6 @@ case object CourseSelectionProcess {
         logger.info(s"[checkCurrentPhase] 将current_phase转换为Phase枚举值: ${phaseEnum}")
         phaseEnum
       }
-  
-      // Log the action in the system log
-      _ <- IO {
-        val logEntry = SystemLogEntry(
-          logID = 0, // Assuming 0 as a placeholder; actual logID will depend on system logic
-          timestamp = DateTime.now,
-          userID = 0, // Assuming 0 as a placeholder; adapt based on actual context of userID
-          action = "CheckCurrentPhase",
-          details = s"当前学期阶段为: ${phase}"
-        )
-        logger.info(s"[checkCurrentPhase] 系统日志记录: ${logEntry}")
-      }
     } yield phase
   }
   
