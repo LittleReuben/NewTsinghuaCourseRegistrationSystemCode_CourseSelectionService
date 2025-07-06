@@ -41,7 +41,7 @@ case object CourseSelectionProcess {
       _ <- IO(logger.info("[checkCurrentPhase] 开始检查当前学期阶段"))
   
       // Fetch SemesterPhase object and read currentPhase field
-      query <- IO(s"SELECT current_phase FROM ${schemaName}.semester_phase;")
+      query <- IO(s"SELECT current_phase FROM ${schemaName}.semester_phase_table;")
       _ <- IO(logger.info(s"[checkCurrentPhase] 执行查询: ${query}"))
       json <- readDBJson(query, List())
   
