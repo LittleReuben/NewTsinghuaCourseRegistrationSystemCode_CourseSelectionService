@@ -112,7 +112,10 @@ case object CourseSelectionProcess {
         WHERE current_phase = ?
         """
       }
-      permissionParams <- IO(List(SqlParameter("String", currentPhase.toString)))
+      permissionParams <- IO(List(SqlParameter("Int", currentPhase match {
+        case Phase.Phase1 => "1"
+        case Phase.Phase2 => "2"
+      })))
       allowStudentSelect <- readDBBoolean(permissionQuery, permissionParams)
       _ <- IO(logger.info(s"权限开关是否允许学生选课: ${allowStudentSelect}"))
   
