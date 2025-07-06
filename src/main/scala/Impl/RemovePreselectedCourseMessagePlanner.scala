@@ -76,8 +76,9 @@ case class RemovePreselectedCourseMessagePlanner(
       // Step 3: Check current phase
       _ <- IO(logger.info("[Step 3] 检查当前学期阶段"))
       currentPhase <- checkCurrentPhase()
+      isDropAllowed <- checkIsDropAllowed()
       _ <- IO {
-        if (currentPhase != Phase.Phase1 || ! checkIsDropAllowed()) {
+        if (currentPhase != Phase.Phase1 || isDropAllowed) {
           val errorMessage = "当前阶段不允许移除预选课程"
           logger.error(errorMessage)
           throw new IllegalStateException(errorMessage)
