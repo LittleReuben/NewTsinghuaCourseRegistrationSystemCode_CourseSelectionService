@@ -36,8 +36,9 @@ case object CourseSelectionProcess {
   
   def checkCurrentPhase()(using PlanContext): IO[Phase] = {
   // val logger = LoggerFactory.getLogger("checkCurrentPhase")  // 同文后端处理: logger 统一
-    
+  
     for {
+      // Logging the start of the process
       _ <- IO(logger.info("[checkCurrentPhase] 开始检查当前学期阶段"))
   
       // Fetch SemesterPhase object and read currentPhase field
@@ -46,11 +47,27 @@ case object CourseSelectionProcess {
       currentPhaseInt <- readDBInt(query, List())
       _ <- IO(logger.info(s"[checkCurrentPhase] 从数据库中读取到current_phase字段值: ${currentPhaseInt}"))
   
-      // Convert currentPhase int to Phase enum
+      // Map currentPhaseInt to an appropriate Phase enum
       phase <- IO {
-        val phaseEnum = Phase.fromString(currentPhaseInt.toString)
-        logger.info(s"[checkCurrentPhase] 将current_phase转换为 Phase 枚举值: ${phaseEnum}")
+        val phaseEnum = currentPhaseInt match {
+          case 1 => Phase.Phase1
+          case 2 => Phase.Phase2
+          case _ => throw new IllegalArgumentException(s"未知的 current_phase 值: ${currentPhaseInt}")
+        }
+        logger.info(s"[checkCurrentPhase] 将current_phase转换为Phase枚举值: ${phaseEnum}")
         phaseEnum
+      }
+  
+      // Log the action in the system log
+      _ <- IO {
+        val logEntry = SystemLogEntry(
+          logID = 0, // Assuming 0 as a placeholder; actual logID will depend on system logic
+          timestamp = DateTime.now,
+          userID = 0, // Assuming 0 as a placeholder; adapt based on actual context of userID
+          action = "CheckCurrentPhase",
+          details = s"当前学期阶段为: ${phase}"
+        )
+        logger.info(s"[checkCurrentPhase] 系统日志记录: ${logEntry}")
       }
     } yield phase
   }
