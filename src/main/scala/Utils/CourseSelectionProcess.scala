@@ -219,23 +219,6 @@ case object CourseSelectionProcess {
     logger.info(s"开始记录选课操作日志，学生ID: ${studentID}, 动作: ${action}, 课程ID: ${courseID.getOrElse("无")}, 详情: ${details}")
   
     for {
-      // 验证studentID是否有效
-      studentCheckQuery <- IO {
-        s"""
-        SELECT student_id
-        FROM ${schemaName}.student
-        WHERE student_id = ?
-        """
-      }
-      isValidStudent <- readDBJsonOptional(studentCheckQuery, List(SqlParameter("Int", studentID.toString))).map {
-        case Some(_) =>
-          logger.info(s"验证成功，学生ID: ${studentID}存在于系统中")
-          true
-        case None =>
-          logger.error(s"验证失败，学生ID: ${studentID}不存在")
-          false
-      }
-  
       // 验证action是否符合选课操作范围
       validActions <- IO { Set("选课", "退课", "预选") }
       isValidAction <- IO { validActions.contains(action) }
@@ -261,7 +244,7 @@ case object CourseSelectionProcess {
   
       // 构造日志记录对象并保存至数据库
       logRecorded <- {
-        val isValidLog = isValidStudent && isValidAction && validCourseInfo
+        val isValidLog = isValidAction && validCourseInfo
         if (isValidLog) {
           val timestamp = DateTime.now() // 修复错误：在for comprehension外部生成timestamp，避免使用<-赋值
           val logInsertSQL =
