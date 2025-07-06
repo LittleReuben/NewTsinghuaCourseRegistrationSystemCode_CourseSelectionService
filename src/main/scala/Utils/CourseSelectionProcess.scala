@@ -242,6 +242,11 @@ case object CourseSelectionProcess {
           IO(logger.info("课程ID未提供，跳过验证")).as(true)
       }
   
+      detailsWithCourse <- opt match { 
+        case Some(ID) => s"课程ID=${ID}:${details}"
+        case None => details
+      }
+  
       // 构造日志记录对象并保存至数据库
       logRecorded <- {
         val isValidLog = isValidAction && validCourseInfo
