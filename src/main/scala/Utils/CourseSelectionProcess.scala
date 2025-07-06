@@ -29,6 +29,8 @@ import APIs.UserAuthService.VerifyTokenValidityMessage
 import APIs.UserAccountService.QuerySafeUserInfoByTokenMessage
 import Objects.UserAccountService.UserRole
 import Objects.UserAccountService.SafeUserInfo
+import io.circe.Json
+import io.circe.parser._
 
 case object CourseSelectionProcess {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -134,61 +136,78 @@ case object CourseSelectionProcess {
   }
   
   def fetchCourseInfoByID(courseID: Int)(using PlanContext): IO[Option[CourseInfo]] = {
-    logger.info(s"开始查询课程ID为${courseID}的课程信息")
+    logger.info(s"开始查询课程信息，传入的课程ID为 ${courseID}。")
   
-    val sqlQuery =
-      s"""
-        SELECT course_id, course_capacity, time, location, course_group_id, teacher_id, 
-               preselected_students_size, selected_students_size, waiting_list_size
-        FROM ${schemaName}.course_table
-        WHERE course_id = ?
-      """
-    val parameters = List(SqlParameter("Int", courseID.toString))
+    // 检查课程ID是否有效（非负）
+    if (courseID <= 0) {
+      logger.warn(s"课程ID ${courseID} 无效，直接返回 None。")
+      IO(None)
+    } else {
+      val courseQuery =
+        s"""
+  SELECT course_id, course_capacity, time, location, course_group_id, teacher_id
+  FROM ${schemaName}.course_table
+  WHERE course_id = ?;
+           """.stripMargin
   
-    for {
-      _ <- IO(logger.info(s"执行数据库查询获取课程信息，查询SQL为：${sqlQuery}"))
-      queryResult <- readDBJsonOptional(sqlQuery, parameters)
-      courseInfo <- IO {
-        queryResult.map { json =>
-          val courseID = decodeField[Int](json, "course_id")
-          val courseCapacity = decodeField[Int](json, "course_capacity")
-          val timeJsonList = decodeField[List[Json]](json, "time")
-          val timeList = timeJsonList.map(decodeType[CourseTime])
-          val location = decodeField[String](json, "location")
-          val courseGroupID = decodeField[Int](json, "course_group_id")
-          val teacherID = decodeField[Int](json, "teacher_id")
-          val preselectedStudentsSize = decodeField[Int](json, "preselected_students_size")
-          val selectedStudentsSize = decodeField[Int](json, "selected_students_size")
-          val waitingListSize = decodeField[Int](json, "waiting_list_size")
+      logger.info(s"数据库查询SQL生成完成：${courseQuery}")
   
-          CourseInfo(
-            courseID,
-            courseCapacity,
-            timeList,
-            location,
-            courseGroupID,
-            teacherID,
-            preselectedStudentsSize,
-            selectedStudentsSize,
-            waitingListSize
-          )
+      val queryParameters = IO(List(SqlParameter("Int", courseID.toString)))
+  
+      for {
+        parameters <- queryParameters
+        // 执行查询课程的基础信息
+        optionalCourseJson <- readDBJsonOptional(courseQuery, parameters)
+        _ <- IO(logger.info(s"数据库返回结果是否存在：${optionalCourseJson.isDefined}"))
+  
+        // 查询 preselectedStudentsSize, selectedStudentsSize, waitingListSize
+        preselectedSize <- readDBInt(
+          s"SELECT COUNT(*) FROM ${schemaName}.course_preselection_table WHERE course_id = ?;",
+          List(SqlParameter("Int", courseID.toString))
+        )
+        selectedSize <- readDBInt(
+          s"SELECT COUNT(*) FROM ${schemaName}.course_selection_table WHERE course_id = ?;",
+          List(SqlParameter("Int", courseID.toString))
+        )
+        waitingListSize <- readDBInt(
+          s"SELECT COUNT(*) FROM ${schemaName}.waiting_list_table WHERE course_id = ?;",
+          List(SqlParameter("Int", courseID.toString))
+        )
+  
+        // 如果查询结果存在，则解析数据为 CourseInfo
+        courseInfo <- IO {
+          optionalCourseJson.map { courseJson =>
+            logger.info(s"开始解析数据库返回值为 CourseInfo 对象，返回 JSON 为：${courseJson}")
+  
+            val courseIDValue = decodeField[Int](courseJson, "course_id")
+            val courseCapacityValue = decodeField[Int](courseJson, "course_capacity")
+            val timeRaw = decodeField[String](courseJson, "time")
+            val timeParsed = parse(timeRaw).getOrElse(Json.Null).as[List[Json]].getOrElse(List.empty).map { timeJson =>
+              logger.info(s"解析课程时间字段：${timeJson}")
+              val dayOfWeekValue = DayOfWeek.fromString(decodeField[String](timeJson, "day_of_week"))
+              val timePeriodValue = TimePeriod.fromString(decodeField[String](timeJson, "time_period"))
+              CourseTime(dayOfWeekValue, timePeriodValue)
+            }
+            val locationValue = decodeField[String](courseJson, "location")
+            val courseGroupIDValue = decodeField[Int](courseJson, "course_group_id")
+            val teacherIDValue = decodeField[Int](courseJson, "teacher_id")
+  
+            // 构造 CourseInfo 对象
+            CourseInfo(
+              courseID = courseIDValue,
+              courseCapacity = courseCapacityValue,
+              time = timeParsed,
+              location = locationValue,
+              courseGroupID = courseGroupIDValue,
+              teacherID = teacherIDValue,
+              preselectedStudentsSize = preselectedSize,
+              selectedStudentsSize = selectedSize,
+              waitingListSize = waitingListSize
+            )
+          }
         }
-      }
-      _ <- IO {
-        if (queryResult.isEmpty)
-          logger.info(s"查询结果为空，课程ID${courseID}不存在")
-        else
-          logger.info(s"成功获取课程ID为${courseID}的课程信息")
-      }
-      _ <- recordCourseSelectionOperationLog(
-        studentID = 0, // 假设为系统操作，这里用0替代具体学生ID
-        action = "QUERY_COURSE",
-        courseID = Some(courseID),
-        details = if (queryResult.isDefined) s"查询成功" else s"查询失败：课程ID不存在"
-      ).flatMap(logRecorded =>
-        IO(logger.info(s"查询操作日志记录${if (logRecorded) "成功" else "失败"}"))
-      )
-    } yield courseInfo
+      } yield courseInfo
+    }
   }
   
   def recordCourseSelectionOperationLog(
