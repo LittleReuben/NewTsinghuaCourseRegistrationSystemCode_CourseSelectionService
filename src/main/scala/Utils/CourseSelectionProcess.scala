@@ -34,6 +34,78 @@ case object CourseSelectionProcess {
   private val logger = LoggerFactory.getLogger(getClass)
   //process plan code 预留标志位，不要删除
   
+  def checkCurrentPhase()(using PlanContext): IO[Phase] = {
+  // val logger = LoggerFactory.getLogger("checkCurrentPhase")  // 同文后端处理: logger 统一
+    
+    for {
+      _ <- IO(logger.info("[checkCurrentPhase] 开始检查当前学期阶段"))
+  
+      // Fetch SemesterPhase object and read currentPhase field
+      query <- IO(s"SELECT current_phase FROM ${schemaName}.semester_phase;")
+      _ <- IO(logger.info(s"[checkCurrentPhase] 执行查询: ${query}"))
+      json <- readDBJson(query, List())
+  
+      currentPhaseString <- IO {
+        val phase = decodeField[String](json, "current_phase")
+        logger.info(s"[checkCurrentPhase] 从数据库中读取到current_phase字段值: ${phase}")
+        phase
+      }
+  
+      // Convert currentPhase string to Phase enum
+      phase <- IO {
+        val phaseEnum = Phase.fromString(currentPhaseString)
+        logger.info(s"[checkCurrentPhase] 将current_phase转换为 Phase 枚举值: ${phaseEnum}")
+        phaseEnum
+      }
+  
+      // Log the operation using SystemLogEntry
+      _ <- {
+        val logEntry = SystemLogEntry(
+          logID = 0, // Placeholder as we don't generate logID here
+          timestamp = DateTime.now,
+          userID = 0, // Placeholder as no userID context is provided
+          action = "CheckCurrentPhase",
+          details = s"检查当前学期阶段, 当前阶段: ${phase.toString}"
+        )
+        IO(logger.info(s"[checkCurrentPhase] 创建 SystemLogEntry: ${logEntry.toString}"))>>
+        IO.unit // Placeholder to indicate logging action; actual persistence is not implemented here
+      }
+      
+    } yield phase
+  }
+  
+  def checkIsDropAllowed(
+    currentPhase: Phase,
+    allowStudentDrop: Boolean
+  )(using PlanContext): IO[Boolean] = {
+  // val logger = LoggerFactory.getLogger("checkIsDropAllowed")  // 同文后端处理: logger 统一
+    for {
+      _ <- IO(logger.info(s"[checkIsDropAllowed] 开始检查是否允许退课操作"))
+      _ <- IO(logger.info(s"[checkIsDropAllowed] 当前阶段为: ${currentPhase}, 退课权限状态: ${allowStudentDrop}"))
+  
+      // 判断是否可以退课
+      isDropAllowed <- IO {
+        if (currentPhase == Phase.Phase2 && allowStudentDrop) {
+          logger.info("[checkIsDropAllowed] 当前阶段为退课阶段且退课权限已开启，可以退课")
+          true
+        } else {
+          logger.info("[checkIsDropAllowed] 当前阶段非退课阶段或退课权限未开启，不允许退课")
+          false
+        }
+      }
+  
+      // 记录操作日志
+      _ <- recordCourseSelectionOperationLog(
+        studentID = 0, // 假设为系统操作，不涉及具体学生，因此设为0
+        action = "CheckDropAllowed",
+        courseID = None,
+        details = s"Checked drop permission state: Current Phase=${currentPhase}, Allow Student Drop=${allowStudentDrop}"
+      ).flatMap(logRecorded =>
+        IO(logger.info(s"[checkIsDropAllowed] 记录退课权限检查的操作日志，结果: ${if (logRecorded) "成功" else "失败"}"))
+      )
+    } yield isDropAllowed
+  }
+  
   def checkIsSelectionAllowed()(using PlanContext): IO[Boolean] = {
   // val logger = LoggerFactory.getLogger("checkIsSelectionAllowed")  // 同文后端处理: logger 统一
     logger.info("开始检查当前是否可以进行选课操作")
@@ -73,113 +145,6 @@ case object CourseSelectionProcess {
         IO(logger.info(s"选课检查日志记录${if (logRecorded) "成功" else "失败"}"))
       )
     } yield selectionAllowed
-  }
-  
-  def removeStudentFromWaitingList(courseID: Int, studentID: Int)(using PlanContext): IO[String] = {
-    logger.info(s"开始移除等待列表中的学生操作：课程ID=${courseID}, 学生ID=${studentID}")
-  
-    val checkCourseQuery = s"SELECT * FROM ${schemaName}.course_table WHERE course_id = ?"
-    val checkStudentInWaitingListQuery =
-      s"SELECT * FROM ${schemaName}.waiting_list_table WHERE course_id = ? AND student_id = ?"
-    val deleteStudentQuery =
-      s"DELETE FROM ${schemaName}.waiting_list_table WHERE course_id = ? AND student_id = ?"
-  
-    for {
-      // 验证课程ID是否有效
-      validCourse <- readDBJsonOptional(checkCourseQuery, List(SqlParameter("Int", courseID.toString))).map {
-        case Some(_) =>
-          logger.info(s"课程ID=${courseID}存在，验证通过")
-          true
-        case None =>
-          logger.error(s"课程ID=${courseID}不存在")
-          false
-      }
-  
-      // 如果课程无效，直接返回错误
-      _ <- if (!validCourse) {
-        IO.raiseError(new IllegalArgumentException(s"课程ID=${courseID}无效，请检查输入参数"))
-      } else {
-        IO.unit
-      }
-  
-      // 验证学生是否在指定课程的WaitingList中
-      studentInWaitingList <- readDBJsonOptional(
-        checkStudentInWaitingListQuery,
-        List(SqlParameter("Int", courseID.toString), SqlParameter("Int", studentID.toString))
-      ).map {
-        case Some(_) =>
-          logger.info(s"验证通过，学生ID=${studentID}在课程ID=${courseID}的等待名单中")
-          true
-        case None =>
-          logger.error(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中")
-          false
-      }
-  
-      // 如果学生不在等待名单中，直接返回错误
-      _ <- if (!studentInWaitingList) {
-        IO.raiseError(new IllegalArgumentException(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中，无法移除"))
-      } else {
-        IO.unit
-      }
-  
-      // 从数据库删除该学生
-      deleteResult <- writeDB(
-        deleteStudentQuery,
-        List(SqlParameter("Int", courseID.toString), SqlParameter("Int", studentID.toString))
-      ).flatMap(result =>
-        IO {
-          logger.info(s"成功移除学生ID=${studentID}从课程ID=${courseID}的等待名单，数据库操作结果：${result}")
-        }
-      )
-  
-      // 记录操作日志
-      operationDetails = s"学生ID=${studentID} 从课程ID=${courseID} 的等待名单中移除"
-      logSuccess <- recordCourseSelectionOperationLog(
-        studentID = studentID,
-        action = "REMOVE_WAITING_LIST",
-        courseID = Some(courseID),
-        details = operationDetails
-      ).flatMap { logResult =>
-        IO {
-          if (logResult)
-            logger.info(s"成功记录操作日志: ${operationDetails}")
-          else
-            logger.error(s"记录操作日志失败: ${operationDetails}")
-        }
-      }
-    } yield s"学生ID=${studentID}成功移除课程ID=${courseID}的等待名单"
-  }
-  
-  def checkIsDropAllowed(
-    currentPhase: Phase,
-    allowStudentDrop: Boolean
-  )(using PlanContext): IO[Boolean] = {
-  // val logger = LoggerFactory.getLogger("checkIsDropAllowed")  // 同文后端处理: logger 统一
-    for {
-      _ <- IO(logger.info(s"[checkIsDropAllowed] 开始检查是否允许退课操作"))
-      _ <- IO(logger.info(s"[checkIsDropAllowed] 当前阶段为: ${currentPhase}, 退课权限状态: ${allowStudentDrop}"))
-  
-      // 判断是否可以退课
-      isDropAllowed <- IO {
-        if (currentPhase == Phase.Phase2 && allowStudentDrop) {
-          logger.info("[checkIsDropAllowed] 当前阶段为退课阶段且退课权限已开启，可以退课")
-          true
-        } else {
-          logger.info("[checkIsDropAllowed] 当前阶段非退课阶段或退课权限未开启，不允许退课")
-          false
-        }
-      }
-  
-      // 记录操作日志
-      _ <- recordCourseSelectionOperationLog(
-        studentID = 0, // 假设为系统操作，不涉及具体学生，因此设为0
-        action = "CheckDropAllowed",
-        courseID = None,
-        details = s"Checked drop permission state: Current Phase=${currentPhase}, Allow Student Drop=${allowStudentDrop}"
-      ).flatMap(logRecorded =>
-        IO(logger.info(s"[checkIsDropAllowed] 记录退课权限检查的操作日志，结果: ${if (logRecorded) "成功" else "失败"}"))
-      )
-    } yield isDropAllowed
   }
   
   def fetchCourseInfoByID(courseID: Int)(using PlanContext): IO[Option[CourseInfo]] = {
@@ -239,93 +204,85 @@ case object CourseSelectionProcess {
       )
     } yield courseInfo
   }
-  def validateStudentCourseTimeConflict(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
+  
+  def recordCourseSelectionOperationLog(
+    studentID: Int,
+    action: String,
+    courseID: Option[Int],
+    details: String
+  )(using PlanContext): IO[Boolean] = {
+    logger.info(s"开始记录选课操作日志，学生ID: ${studentID}, 动作: ${action}, 课程ID: ${courseID.getOrElse("无")}, 详情: ${details}")
   
     for {
-      // 获取当前阶段
-      phase <- readDBString("SELECT phase FROM ${schemaName}.system_config LIMIT 1", List())
-  
-      // 查询当前学生已选课程的课程ID
-      sqlQueryPhase1 <- IO {
+      // 验证studentID是否有效
+      studentCheckQuery <- IO {
         s"""
-        SELECT course_id
-        FROM ${schemaName}.course_preselection_table
+        SELECT student_id
+        FROM ${schemaName}.student
         WHERE student_id = ?
         """
       }
-      sqlQueryPhase2 <- IO {
-        s"""
-        SELECT course_id
-        FROM ${schemaName}.course_selection_table
-        WHERE student_id = ?
-        UNION
-        SELECT course_id
-        FROM ${schemaName}.waiting_list_table
-        WHERE student_id = ?
-        """
-      }
-      studentParam <- IO { SqlParameter("Int", studentID.toString) }
-      currentCourses <- if (phase == "1") {
-        readDBRows(sqlQueryPhase1, List(studentParam))
-      } else {
-        readDBRows(sqlQueryPhase2, List(studentParam, studentParam))
+      isValidStudent <- readDBJsonOptional(studentCheckQuery, List(SqlParameter("Int", studentID.toString))).map {
+        case Some(_) =>
+          logger.info(s"验证成功，学生ID: ${studentID}存在于系统中")
+          true
+        case None =>
+          logger.error(s"验证失败，学生ID: ${studentID}不存在")
+          false
       }
   
-      // 解码当前已选课程ID列表
-      currentCourseIDs <- IO {
-        val ids = currentCourses.map(row => decodeField[Int](row, "course_id"))
-        logger.info(s"学生ID ${studentID} 当前已选课程列表: ${ids.mkString(", ")}")
-        ids
-      }
-  
-      // 获取待检查课程详细信息
-      newCourse <- fetchCourseInfoByID(courseID)
-      newCourseTime <- IO {
-        newCourse.map(_.time).getOrElse(List.empty[CourseTime]) // 修复编译错误，防止 None 返回时导致类型不匹配
-      }
-  
-      // 检查选课冲突
-      conflictCheckResults <- currentCourseIDs.traverse { cid =>
-        fetchCourseInfoByID(cid).map {
-          case Some(existingCourse) =>
-            val existingCourseTimes = existingCourse.time
-            val isConflict = existingCourseTimes.exists(oldTime =>
-              newCourseTime.exists(newTime =>
-                oldTime.dayOfWeek == newTime.dayOfWeek && // 修复编译错误，确保 newTime 确定为 CourseTime 类型
-                  oldTime.timePeriod == newTime.timePeriod
-              )
-            )
-            if (isConflict) {
-              logger.info(s"检测到课程冲突，学生ID ${studentID}: 已选课程 ${cid} 与待选课程 ${courseID} 时间重复！")
-            }
-            isConflict
-          case None =>
-            logger.warn(s"已选课程ID ${cid} 查询失败，跳过冲突检查")
-            false
-        }
-      }
-      isConflict <- IO {
-        conflictCheckResults.exists(identity)
-      }
-  
-      // 记录日志
-      logDetails <- IO {
-        if (isConflict) {
-          s"课程冲突: 已选课程列表 ${currentCourseIDs.mkString(", ")} 与待选课程 ${courseID} 存在冲突"
-        } else {
-          s"无课程冲突: 学生ID ${studentID} 可选择课程 ${courseID}"
-        }
-      }
-      logResult <- recordCourseSelectionOperationLog(
-        studentID = studentID,
-        action = "CONFLICT_CHECK",
-        courseID = Some(courseID),
-        details = logDetails
-      )
+      // 验证action是否符合选课操作范围
+      validActions <- IO { Set("选课", "退课", "预选") }
+      isValidAction <- IO { validActions.contains(action) }
       _ <- IO {
-        logger.info(s"课程冲突检查日志记录${if (logResult) "成功" else "失败"}")
+        if (!isValidAction)
+          logger.error(s"验证失败，动作: ${action}不符合选课操作范围")
       }
-    } yield isConflict
+  
+      // 如果提供了课程ID，验证该课程是否有效
+      validCourseInfo <- courseID match {
+        case Some(id) =>
+          fetchCourseInfoByID(id).map {
+            case Some(info) =>
+              logger.info(s"验证成功，课程ID: ${id}有效，课程信息: ${info}")
+              true
+            case None =>
+              logger.error(s"验证失败，课程ID: ${id}不存在")
+              false
+          }
+        case None =>
+          IO(logger.info("课程ID未提供，跳过验证")).as(true)
+      }
+  
+      // 构造日志记录对象并保存至数据库
+      logRecorded <- {
+        val isValidLog = isValidStudent && isValidAction && validCourseInfo
+        if (isValidLog) {
+          val timestamp = DateTime.now() // 修复错误：在for comprehension外部生成timestamp，避免使用<-赋值
+          val logInsertSQL =
+            s"""
+            INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
+            VALUES (?, ?, ?, ?)
+            """ // 修复错误：在for comprehension外部生成logInsertSQL，避免使用<-赋值
+          val params =
+            List(
+              SqlParameter("DateTime", timestamp.getMillis.toString),
+              SqlParameter("Int", studentID.toString),
+              SqlParameter("String", action),
+              SqlParameter("String", details)
+            ) // 修复错误：在for comprehension外部生成params，避免使用<-赋值
+          writeDB(logInsertSQL, params).map(_ => {
+            logger.info("选课操作日志记录成功")
+            true
+          })
+        } else {
+          IO {
+            logger.error("选课操作日志记录失败，原因: 参数验证未通过")
+            false
+          }
+        }
+      }
+    } yield logRecorded
   }
   
   def removeStudentFromSelectedCourses(studentID: Int, courseID: Int)(using PlanContext): IO[String] = {
@@ -449,44 +406,213 @@ case object CourseSelectionProcess {
   
   // 模型修复的原因: 原代码中使用 unsafeRunSync 方法报错，因为需要 cats.effect.IORuntime 的隐式作用域。修复方式为添加 `import cats.effect.unsafe.implicits.global` 来提供默认的 IORuntime 实现，并保证调用 unsafeRunSync 方法时正常运行。
   
-  def checkCurrentPhase()(using PlanContext): IO[Phase] = {
-  // val logger = LoggerFactory.getLogger("checkCurrentPhase")  // 同文后端处理: logger 统一
-    
+  def removeStudentFromWaitingList(courseID: Int, studentID: Int)(using PlanContext): IO[String] = {
+    logger.info(s"开始移除等待列表中的学生操作：课程ID=${courseID}, 学生ID=${studentID}")
+  
+    val checkCourseQuery = s"SELECT * FROM ${schemaName}.course_table WHERE course_id = ?"
+    val checkStudentInWaitingListQuery =
+      s"SELECT * FROM ${schemaName}.waiting_list_table WHERE course_id = ? AND student_id = ?"
+    val deleteStudentQuery =
+      s"DELETE FROM ${schemaName}.waiting_list_table WHERE course_id = ? AND student_id = ?"
+  
     for {
-      _ <- IO(logger.info("[checkCurrentPhase] 开始检查当前学期阶段"))
-  
-      // Fetch SemesterPhase object and read currentPhase field
-      query <- IO(s"SELECT current_phase FROM ${schemaName}.semester_phase;")
-      _ <- IO(logger.info(s"[checkCurrentPhase] 执行查询: ${query}"))
-      json <- readDBJson(query, List())
-  
-      currentPhaseString <- IO {
-        val phase = decodeField[String](json, "current_phase")
-        logger.info(s"[checkCurrentPhase] 从数据库中读取到current_phase字段值: ${phase}")
-        phase
+      // 验证课程ID是否有效
+      validCourse <- readDBJsonOptional(checkCourseQuery, List(SqlParameter("Int", courseID.toString))).map {
+        case Some(_) =>
+          logger.info(s"课程ID=${courseID}存在，验证通过")
+          true
+        case None =>
+          logger.error(s"课程ID=${courseID}不存在")
+          false
       }
   
-      // Convert currentPhase string to Phase enum
-      phase <- IO {
-        val phaseEnum = Phase.fromString(currentPhaseString)
-        logger.info(s"[checkCurrentPhase] 将current_phase转换为 Phase 枚举值: ${phaseEnum}")
-        phaseEnum
+      // 如果课程无效，直接返回错误
+      _ <- if (!validCourse) {
+        IO.raiseError(new IllegalArgumentException(s"课程ID=${courseID}无效，请检查输入参数"))
+      } else {
+        IO.unit
       }
   
-      // Log the operation using SystemLogEntry
-      _ <- {
-        val logEntry = SystemLogEntry(
-          logID = 0, // Placeholder as we don't generate logID here
-          timestamp = DateTime.now,
-          userID = 0, // Placeholder as no userID context is provided
-          action = "CheckCurrentPhase",
-          details = s"检查当前学期阶段, 当前阶段: ${phase.toString}"
-        )
-        IO(logger.info(s"[checkCurrentPhase] 创建 SystemLogEntry: ${logEntry.toString}"))>>
-        IO.unit // Placeholder to indicate logging action; actual persistence is not implemented here
+      // 验证学生是否在指定课程的WaitingList中
+      studentInWaitingList <- readDBJsonOptional(
+        checkStudentInWaitingListQuery,
+        List(SqlParameter("Int", courseID.toString), SqlParameter("Int", studentID.toString))
+      ).map {
+        case Some(_) =>
+          logger.info(s"验证通过，学生ID=${studentID}在课程ID=${courseID}的等待名单中")
+          true
+        case None =>
+          logger.error(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中")
+          false
       }
-      
-    } yield phase
+  
+      // 如果学生不在等待名单中，直接返回错误
+      _ <- if (!studentInWaitingList) {
+        IO.raiseError(new IllegalArgumentException(s"学生ID=${studentID}不在课程ID=${courseID}的等待名单中，无法移除"))
+      } else {
+        IO.unit
+      }
+  
+      // 从数据库删除该学生
+      deleteResult <- writeDB(
+        deleteStudentQuery,
+        List(SqlParameter("Int", courseID.toString), SqlParameter("Int", studentID.toString))
+      ).flatMap(result =>
+        IO {
+          logger.info(s"成功移除学生ID=${studentID}从课程ID=${courseID}的等待名单，数据库操作结果：${result}")
+        }
+      )
+  
+      // 记录操作日志
+      operationDetails = s"学生ID=${studentID} 从课程ID=${courseID} 的等待名单中移除"
+      logSuccess <- recordCourseSelectionOperationLog(
+        studentID = studentID,
+        action = "REMOVE_WAITING_LIST",
+        courseID = Some(courseID),
+        details = operationDetails
+      ).flatMap { logResult =>
+        IO {
+          if (logResult)
+            logger.info(s"成功记录操作日志: ${operationDetails}")
+          else
+            logger.error(s"记录操作日志失败: ${operationDetails}")
+        }
+      }
+    } yield s"学生ID=${studentID}成功移除课程ID=${courseID}的等待名单"
+  }
+  def validateStudentCourseTimeConflict(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
+  
+    for {
+      // 获取当前阶段
+      phase <- readDBString("SELECT phase FROM ${schemaName}.system_config LIMIT 1", List())
+  
+      // 查询当前学生已选课程的课程ID
+      sqlQueryPhase1 <- IO {
+        s"""
+        SELECT course_id
+        FROM ${schemaName}.course_preselection_table
+        WHERE student_id = ?
+        """
+      }
+      sqlQueryPhase2 <- IO {
+        s"""
+        SELECT course_id
+        FROM ${schemaName}.course_selection_table
+        WHERE student_id = ?
+        UNION
+        SELECT course_id
+        FROM ${schemaName}.waiting_list_table
+        WHERE student_id = ?
+        """
+      }
+      studentParam <- IO { SqlParameter("Int", studentID.toString) }
+      currentCourses <- if (phase == "1") {
+        readDBRows(sqlQueryPhase1, List(studentParam))
+      } else {
+        readDBRows(sqlQueryPhase2, List(studentParam, studentParam))
+      }
+  
+      // 解码当前已选课程ID列表
+      currentCourseIDs <- IO {
+        val ids = currentCourses.map(row => decodeField[Int](row, "course_id"))
+        logger.info(s"学生ID ${studentID} 当前已选课程列表: ${ids.mkString(", ")}")
+        ids
+      }
+  
+      // 获取待检查课程详细信息
+      newCourse <- fetchCourseInfoByID(courseID)
+      newCourseTime <- IO {
+        newCourse.map(_.time).getOrElse(List.empty[CourseTime]) // 修复编译错误，防止 None 返回时导致类型不匹配
+      }
+  
+      // 检查选课冲突
+      conflictCheckResults <- currentCourseIDs.traverse { cid =>
+        fetchCourseInfoByID(cid).map {
+          case Some(existingCourse) =>
+            val existingCourseTimes = existingCourse.time
+            val isConflict = existingCourseTimes.exists(oldTime =>
+              newCourseTime.exists(newTime =>
+                oldTime.dayOfWeek == newTime.dayOfWeek && // 修复编译错误，确保 newTime 确定为 CourseTime 类型
+                  oldTime.timePeriod == newTime.timePeriod
+              )
+            )
+            if (isConflict) {
+              logger.info(s"检测到课程冲突，学生ID ${studentID}: 已选课程 ${cid} 与待选课程 ${courseID} 时间重复！")
+            }
+            isConflict
+          case None =>
+            logger.warn(s"已选课程ID ${cid} 查询失败，跳过冲突检查")
+            false
+        }
+      }
+      isConflict <- IO {
+        conflictCheckResults.exists(identity)
+      }
+  
+      // 记录日志
+      logDetails <- IO {
+        if (isConflict) {
+          s"课程冲突: 已选课程列表 ${currentCourseIDs.mkString(", ")} 与待选课程 ${courseID} 存在冲突"
+        } else {
+          s"无课程冲突: 学生ID ${studentID} 可选择课程 ${courseID}"
+        }
+      }
+      logResult <- recordCourseSelectionOperationLog(
+        studentID = studentID,
+        action = "CONFLICT_CHECK",
+        courseID = Some(courseID),
+        details = logDetails
+      )
+      _ <- IO {
+        logger.info(s"课程冲突检查日志记录${if (logResult) "成功" else "失败"}")
+      }
+    } yield isConflict
+  }
+  
+  
+  def validateStudentToken(studentToken: String)(using PlanContext): IO[Option[Int]] = {
+    logger.info(s"开始验证学生Token: ${studentToken}")
+  
+    for {
+      // Step 1: 验证Token有效性
+      isValidToken <- VerifyTokenValidityMessage(studentToken).send
+      _ <- IO {
+        if (!isValidToken)
+          logger.error(s"学生Token验证失败: ${studentToken}无效")
+        else
+          logger.info(s"学生Token验证有效，继续解析学生信息")
+      }
+  
+      // Step 2: 根据Token获取学生信息
+      studentInfoOpt <- if (isValidToken) {
+        QuerySafeUserInfoByTokenMessage(studentToken).send.map(Some(_))
+      } else {
+        IO.pure(None)
+      }
+  
+      studentIDOpt = studentInfoOpt.flatMap { userInfo =>
+        if (userInfo.role == "STUDENT") {
+          Some(userInfo.userID)
+        } else {
+          None
+        }
+      }
+  
+      // Step 3: 记录日志
+      _ <- studentIDOpt match {
+        case None =>
+          recordCourseSelectionOperationLog(
+            studentID = 0, // 鉴权未通过，无具体学生ID，此处用0表示
+            action = "AUTHENTICATION_FAILED",
+            courseID = None,
+            details = s"学生鉴权失败，Token: ${studentToken}"
+          ).flatMap(logRecorded =>
+            IO(logger.info(s"记录鉴权失败日志${if (logRecorded) "成功" else "失败"}"))
+          )
+        case Some(_) =>
+          IO(logger.info(s"学生Token验证通过，无需记录鉴权失败日志"))
+      }
+    } yield studentIDOpt
   }
   
   def validateTeacherToken(teacherToken: String)(using PlanContext): IO[Option[Int]] = {
@@ -535,127 +661,5 @@ case object CourseSelectionProcess {
                   } yield result
                 }
     } yield result
-  }
-  
-  def validateStudentToken(studentToken: String)(using PlanContext): IO[Option[Int]] = {
-    logger.info(s"开始验证学生Token: ${studentToken}")
-  
-    val query =
-      s"""
-      SELECT student_id
-      FROM ${schemaName}.student_tokens
-      WHERE token = ? AND is_valid = true
-      """
-    val parameters = List(SqlParameter("String", studentToken))
-  
-    for {
-      // Step 1: 查询数据库验证Token
-      tokenValidationResult <- readDBJsonOptional(query, parameters)
-      studentIDOpt <- IO {
-        tokenValidationResult.map(json => decodeField[Int](json, "student_id"))
-      }
-  
-      _ <- IO {
-        if (studentIDOpt.isEmpty)
-          logger.error(s"学生Token验证失败: ${studentToken}无效或不存在")
-        else
-          logger.info(s"学生Token验证成功，解析得到学生ID: ${studentIDOpt.get}")
-      }
-  
-      // Step 2: 若验证失败，记录日志
-      logResult <- studentIDOpt match {
-        case None =>
-          recordCourseSelectionOperationLog(
-            studentID = 0, // 学生尚未验证成功，无具体ID，此处用0表示
-            action = "AUTHENTICATION_FAILED",
-            courseID = None,
-            details = s"学生鉴权失败，Token: ${studentToken}"
-          ).flatMap(logRecorded =>
-            IO(logger.info(s"记录鉴权失败日志${if (logRecorded) "成功" else "失败"}"))
-          )
-        case Some(_) =>
-          IO(logger.info(s"学生Token验证通过，无需记录鉴权失败日志"))
-      }
-    } yield studentIDOpt
-  }
-  
-  def recordCourseSelectionOperationLog(
-    studentID: Int,
-    action: String,
-    courseID: Option[Int],
-    details: String
-  )(using PlanContext): IO[Boolean] = {
-    logger.info(s"开始记录选课操作日志，学生ID: ${studentID}, 动作: ${action}, 课程ID: ${courseID.getOrElse("无")}, 详情: ${details}")
-  
-    for {
-      // 验证studentID是否有效
-      studentCheckQuery <- IO {
-        s"""
-        SELECT student_id
-        FROM ${schemaName}.student
-        WHERE student_id = ?
-        """
-      }
-      isValidStudent <- readDBJsonOptional(studentCheckQuery, List(SqlParameter("Int", studentID.toString))).map {
-        case Some(_) =>
-          logger.info(s"验证成功，学生ID: ${studentID}存在于系统中")
-          true
-        case None =>
-          logger.error(s"验证失败，学生ID: ${studentID}不存在")
-          false
-      }
-  
-      // 验证action是否符合选课操作范围
-      validActions <- IO { Set("选课", "退课", "预选") }
-      isValidAction <- IO { validActions.contains(action) }
-      _ <- IO {
-        if (!isValidAction)
-          logger.error(s"验证失败，动作: ${action}不符合选课操作范围")
-      }
-  
-      // 如果提供了课程ID，验证该课程是否有效
-      validCourseInfo <- courseID match {
-        case Some(id) =>
-          fetchCourseInfoByID(id).map {
-            case Some(info) =>
-              logger.info(s"验证成功，课程ID: ${id}有效，课程信息: ${info}")
-              true
-            case None =>
-              logger.error(s"验证失败，课程ID: ${id}不存在")
-              false
-          }
-        case None =>
-          IO(logger.info("课程ID未提供，跳过验证")).as(true)
-      }
-  
-      // 构造日志记录对象并保存至数据库
-      logRecorded <- {
-        val isValidLog = isValidStudent && isValidAction && validCourseInfo
-        if (isValidLog) {
-          val timestamp = DateTime.now() // 修复错误：在for comprehension外部生成timestamp，避免使用<-赋值
-          val logInsertSQL =
-            s"""
-            INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
-            VALUES (?, ?, ?, ?)
-            """ // 修复错误：在for comprehension外部生成logInsertSQL，避免使用<-赋值
-          val params =
-            List(
-              SqlParameter("DateTime", timestamp.getMillis.toString),
-              SqlParameter("Int", studentID.toString),
-              SqlParameter("String", action),
-              SqlParameter("String", details)
-            ) // 修复错误：在for comprehension外部生成params，避免使用<-赋值
-          writeDB(logInsertSQL, params).map(_ => {
-            logger.info("选课操作日志记录成功")
-            true
-          })
-        } else {
-          IO {
-            logger.error("选课操作日志记录失败，原因: 参数验证未通过")
-            false
-          }
-        }
-      }
-    } yield logRecorded
   }
 }
