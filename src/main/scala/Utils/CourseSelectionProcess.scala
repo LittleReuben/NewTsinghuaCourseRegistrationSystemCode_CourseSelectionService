@@ -108,7 +108,7 @@ case object CourseSelectionProcess {
       permissionQuery <- IO {
         s"""
         SELECT allow_student_select
-        FROM ${schemaName}.permissions
+        FROM ${schemaName}.semester_phase_table
         WHERE current_phase = ?
         """
       }
@@ -123,15 +123,6 @@ case object CourseSelectionProcess {
         isAllowed
       }
   
-      // Step 4: 记录选课检查的相关日志
-      _ <- recordCourseSelectionOperationLog(
-        studentID = 0, // 假设此为系统操作，使用0代表无具体学生ID
-        action = "CHECK_SELECTION_ALLOWED",
-        courseID = None,
-        details = s"选课检查结果: ${selectionAllowed}"
-      ).flatMap(logRecorded =>
-        IO(logger.info(s"选课检查日志记录${if (logRecorded) "成功" else "失败"}"))
-      )
     } yield selectionAllowed
   }
   
