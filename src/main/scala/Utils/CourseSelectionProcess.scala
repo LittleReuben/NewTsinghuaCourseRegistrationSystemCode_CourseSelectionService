@@ -121,7 +121,7 @@ case object CourseSelectionProcess {
   
       // Step 3: 根据权限和阶段状态判断是否允许选课
       selectionAllowed <- IO {
-        val isAllowed = allowStudentSelect && (currentPhase == Phase.Phase2)
+        val isAllowed = allowStudentSelect
         logger.info(s"选课操作是否被允许: ${isAllowed}")
         isAllowed
       }
