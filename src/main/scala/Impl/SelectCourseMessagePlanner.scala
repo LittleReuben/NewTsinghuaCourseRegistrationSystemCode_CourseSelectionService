@@ -117,12 +117,23 @@ case class SelectCourseMessagePlanner(
         }
 
       // Step 6: 记录选课操作日志
-      _ <- recordCourseSelectionOperationLog(
-        studentID = studentID,
-        action = "SELECT_COURSE",
+      // Edited on 7.6 by Alex_Wei: when LogRecording raises an error, we should raise an error
+      _ <- IO(logger.info(s"记录选课操作日志"))
+      logRecorded <- recordCourseSelectionOperationLog(
+        studentID,
+        action = "PRESELECT_COURSE",
         courseID = Some(courseID),
         details = s"选课操作结果: ${resultMessage}"
       )
+      _ <- IO {
+        if (logRecorded) {
+          logger.info(s"操作日志记录成功")
+        } else {
+          val errorMessage = "操作日志记录失败"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
+      }
 
       // Step 7: 返回结果消息
     } yield resultMessage

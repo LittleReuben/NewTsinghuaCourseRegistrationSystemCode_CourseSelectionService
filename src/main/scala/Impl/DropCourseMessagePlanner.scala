@@ -139,7 +139,15 @@ case class DropCourseMessagePlanner(studentToken: String, courseID: Int, overrid
         courseID = Some(courseID),
         details = s"学生退课，课程ID: ${courseID}"
       )
-      _ <- IO(logger.info(s"[Step 8] 退课操作日志记录结果: ${if (logRecorded) "成功" else "失败"}"))
+      _ <- IO {
+        if (logRecorded) {
+          logger.info(s"操作日志记录成功")
+        } else {
+          val errorMessage = "操作日志记录失败"
+          logger.error(errorMessage)
+          throw new IllegalStateException(errorMessage)
+        }
+      }
     } yield "退课成功！"
   }
 }
