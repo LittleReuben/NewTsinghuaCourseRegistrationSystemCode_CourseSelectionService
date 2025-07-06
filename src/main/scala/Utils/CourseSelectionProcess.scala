@@ -593,10 +593,8 @@ case object CourseSelectionProcess {
   
       // Step 3: 判断角色并获取学生ID
       studentIDOpt = studentInfoOpt.flatMap { userInfo =>
-        val role = userInfo.hcursor.downField("role").as[String].getOrElse("")
-        val userID = userInfo.hcursor.downField("userID").as[Int].toOption
-  
-        if (role == "student") userID else None
+        // 修复逻辑：直接使用Option字段进行校验和获取
+        if (userInfo.role == "student") Some(userInfo.userID) else None
       }
   
       _ <- IO {
@@ -609,8 +607,6 @@ case object CourseSelectionProcess {
       }
     } yield studentIDOpt
   }
-  
-  // 模型修复编译错误的解释：原代码假设`Option[Objects.UserAccountService.SafeUserInfo]`类型直接带有`role`和`userID`字段，导致编译错误。通过使用`hcursor`解析字段为`Json`对象的内容，修复了编译错误。同时确保所有下游调用逻辑保持不变。
   
   def validateTeacherToken(teacherToken: String)(using PlanContext): IO[Option[Int]] = {
   // val logger = LoggerFactory.getLogger("validateTeacherToken")  // 同文后端处理: logger 统一
