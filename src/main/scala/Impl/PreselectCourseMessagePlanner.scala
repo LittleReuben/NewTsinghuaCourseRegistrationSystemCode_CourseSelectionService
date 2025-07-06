@@ -60,7 +60,7 @@ case class PreselectCourseMessagePlanner(
       currentPhase <- checkCurrentPhase()
       _ <- IO {
         if (currentPhase != Phase.Phase1)
-          throw new IllegalArgumentException("当前阶段不允许退课。")
+          throw new IllegalArgumentException("当前阶段下不允许预选课程！")
       }
 
       // Step 3.1: Ensure selection is allowed
