@@ -34,7 +34,7 @@ import Common.ServiceUtils.schemaName
 import Utils.CourseSelectionProcess.checkCurrentPhase
 import Utils.CourseSelectionProcess.validateStudentToken
 import Utils.CourseSelectionProcess.fetchCourseInfoByID
-import Utils.CourseSelectionProcess.checkCurrentPhase.checkIsDropAllowed
+import Utils.CourseSelectionProcess.checkIsDropAllowed
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Objects.CourseManagementService.CourseInfo
 import cats.implicits.*
