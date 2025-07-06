@@ -243,7 +243,7 @@ case object CourseSelectionProcess {
       }
   
       detailsWithCourse <- courseID match { 
-        case Some(ID) => s"课程ID=${ID}:${details}"
+        case Some(id) => s"课程ID=${id}:${details}"
         case None => details
       }
   
