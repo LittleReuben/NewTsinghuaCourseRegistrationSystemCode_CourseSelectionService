@@ -243,8 +243,8 @@ case object CourseSelectionProcess {
       }
   
       detailsWithCourse <- courseID match { 
-        case Some(id) => s"课程ID=${id}:${details}"
-        case None => details
+        case Some(id) => IO.pure(s"课程ID=${id}:${details}")
+        case None => IO.pure(details)
       }
   
       // 构造日志记录对象并保存至数据库
