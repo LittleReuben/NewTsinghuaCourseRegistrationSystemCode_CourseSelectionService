@@ -14,6 +14,7 @@ import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Utils.CourseSelectionProcess.checkCurrentPhase
 import Utils.CourseSelectionProcess.validateStudentCourseTimeConflict
 import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
+import Utils.CourseSelectionProcess.checkIsSelectionAllowed
 import cats.effect.IO
 import org.slf4j.LoggerFactory
 import io.circe._
@@ -57,11 +58,17 @@ case class PreselectCourseMessagePlanner(
       // Step 3: Validate current phase
       _ <- IO(logger.info(s"验证当前阶段是否允许预选课程"))
       currentPhaseOpt <- checkCurrentPhase()
-      currentPhase <- currentPhaseOpt match {
-        case phase if phase.toString == "Phase1" => IO(phase) // 修复编译错误，Phase与None不能直接比较，改用Phase的toString方法进行字符串比较
+      _ <- currentPhaseOpt match {
+        case Some(phase) if phase.toString == "phase1" => IO.unit
         case _ =>
           IO.raiseError(new IllegalArgumentException("当前阶段不允许预选课程。"))
       }
+
+      // Step 3.1: Ensure selection is allowed
+      selectionAllowed <- checkIsSelectionAllowed()
+      _ <- if (!selectionAllowed)
+        IO.raiseError(new IllegalArgumentException("当前状态下不允许预选课程！"))
+      else IO.unit
 
       // Step 4: Course conflict validation
       _ <- IO(logger.info(s"检测预选此课程是否与已选课程时间冲突"))
