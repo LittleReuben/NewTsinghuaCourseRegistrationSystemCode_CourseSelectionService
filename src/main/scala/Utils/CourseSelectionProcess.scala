@@ -81,16 +81,6 @@ case object CourseSelectionProcess {
           false
         }
       }
-  
-      // 记录操作日志
-      _ <- recordCourseSelectionOperationLog(
-        studentID = 0, // 假设为系统操作，不涉及具体学生，因此设为0
-        action = "CheckDropAllowed",
-        courseID = None,
-        details = s"Checked drop permission state: Current Phase=${currentPhase}, Allow Student Drop=${allowStudentDrop}"
-      ).flatMap(logRecorded =>
-        IO(logger.info(s"[checkIsDropAllowed] 记录退课权限检查的操作日志，结果: ${if (logRecorded) "成功" else "失败"}"))
-      )
     } yield isDropAllowed
   }
   
