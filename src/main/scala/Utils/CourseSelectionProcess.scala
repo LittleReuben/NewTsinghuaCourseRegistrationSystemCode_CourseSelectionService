@@ -213,8 +213,9 @@ case object CourseSelectionProcess {
     logger.info(s"开始记录选课操作日志，学生ID: ${studentID}, 动作: ${action}, 课程ID: ${courseID.getOrElse("无")}, 详情: ${details}")
   
     for {
-      // 验证action是否符合选课操作范围
-      validActions <- IO { Set("选课", "退课", "预选") }
+      // 验证 action 是否符合选课操作范围
+      // Edited by Alex_Wei on 7.6: Add "REMOVE_PRESELECTED_COURSE".
+      validActions <- IO { Set("选课", "退课", "预选", "REMOVE_PRESELECTED_COURSE") }
       isValidAction <- IO { validActions.contains(action) }
       _ <- IO {
         if (!isValidAction)
@@ -246,9 +247,9 @@ case object CourseSelectionProcess {
         val isValidLog = isValidAction && validCourseInfo
         if (isValidLog) {
           val timestamp = DateTime.now() // 修复错误：在for comprehension外部生成timestamp，避免使用<-赋值
-          val logInsertSQL =
+          val logInsertSQL = // Edited on 7.6: system_log -> system_log_table
             s"""
-            INSERT INTO ${schemaName}.system_log (timestamp, user_id, action, details)
+            INSERT INTO ${schemaName}.system_log_table (timestamp, user_id, action, details)
             VALUES (?, ?, ?, ?)
             """ // 修复错误：在for comprehension外部生成logInsertSQL，避免使用<-赋值
           val params =
