@@ -100,6 +100,7 @@ case class SelectCourseMessagePlanner(
 
       // Step 4: 检查课程是否已选以及时间冲突
       _ <- checkAlreadySelected(studentID, courseID)
+      _ <- checkAlreadyWaited(studentID, courseID)
       isConflict <- validateStudentCourseTimeConflict(studentID, courseID)
       _ <- IO {
         if (isConflict) {
@@ -152,6 +153,22 @@ case class SelectCourseMessagePlanner(
           .flatMap(_ => IO.raiseError(new IllegalArgumentException("该门课程已选！")))
       case None =>
         IO(logger.info(s"学生ID=${studentID}未选择课程ID=${courseID}"))
+    }
+  }
+  
+  private def checkAlreadyWaited(studentID: Int, courseID: Int)(using PlanContext): IO[Unit] = {
+    val query =
+      s"""
+      SELECT course_id
+      FROM ${schemaName}.waiting_list_table
+      WHERE student_id = ? AND course_id = ?
+    """
+    readDBJsonOptional(query, List(SqlParameter("Int", studentID.toString), SqlParameter("Int", courseID.toString))).flatMap {
+      case Some(_) =>
+        IO(logger.error(s"学生ID=${studentID}已候选课程ID=${courseID}"))
+          .flatMap(_ => IO.raiseError(new IllegalArgumentException("该门课程已候选！")))
+      case None =>
+        IO(logger.info(s"学生ID=${studentID}未候选课程ID=${courseID}"))
     }
   }
 
