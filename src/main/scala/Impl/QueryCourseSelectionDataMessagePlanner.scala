@@ -21,6 +21,7 @@ import Utils.CourseSelectionProcess.recordCourseSelectionOperationLog
 import Objects.CourseManagementService.DayOfWeek
 import Objects.CourseManagementService.TimePeriod
 import Objects.UserAccountService.UserRole
+import APIs.UserAccountService.QuerySafeUserInfoByUserIDMessage
 import org.slf4j.LoggerFactory
 import cats.effect.unsafe.implicits.global
 
@@ -55,10 +56,9 @@ case class QueryCourseSelectionDataMessagePlanner(
 
       // Step 3: Check if the current phase is Phase2
       currentPhase <- checkCurrentPhase()
-      _ <- IO {
-        if (currentPhase != Phase.Phase2)
-          throw new IllegalArgumentException("当前阶段尚未抽签！")
-      }
+      _ <- if (currentPhase != Phase.Phase2)
+        IO.raiseError(new IllegalArgumentException("当前阶段尚未抽签！"))
+      else IO.unit
 
       // Step 4: Fetch course selection data
       selectionData <- getCourseSelectionData(courseID)
@@ -76,28 +76,18 @@ case class QueryCourseSelectionDataMessagePlanner(
     for {
       _ <- IO(logger.info(s"执行数据库查询获取学生选上名单，课程ID:${courseID}"))
       studentRows <- readDBRows(sqlQuery, parameters)
-      selectionData <- IO {
-        studentRows.flatMap { row =>
-          val studentID = decodeField[Int](row, "student_id")
-          getSafeUserInfoByID(studentID)
+      selectionData <- studentRows.flatTraverse { row =>
+        val studentID = decodeField[Int](row, "student_id")
+        QuerySafeUserInfoByUserIDMessage(studentID).send.map {
+          case Some(userInfo) =>
+            logger.info(s"成功获取到学生信息: ${userInfo}")
+            List(userInfo)
+          case None =>
+            logger.error(s"未找到学生ID: ${studentID}的相关信息")
+            List.empty
         }
       }
       _ <- IO(logger.info(s"成功获取到${selectionData.size}位学生的选上名单"))
     } yield selectionData
-  }
-
-  private def getSafeUserInfoByID(studentID: Int)(using PlanContext): Option[SafeUserInfo] = {
-    val sqlQuery = s"SELECT * FROM ${schemaName}.safe_user_info_table WHERE user_id = ?;"
-    val parameters = List(SqlParameter("Int", studentID.toString))
-
-    readDBJsonOptional(sqlQuery, parameters).unsafeRunSync() match {
-      case Some(json) =>
-        val userInfo = decodeType[SafeUserInfo](json)
-        logger.info(s"成功获取到学生信息: ${userInfo}")
-        Some(userInfo)
-      case None =>
-        logger.error(s"未找到学生ID: ${studentID}的相关信息")
-        None
-    }
   }
 }
