@@ -19,42 +19,42 @@ import java.util.UUID
 
 
 /**
- * RollBackToPhase1Service
+ * RollBackToPhase1Message
  * desc: 清空所有选课信息，保留用户与开课信息
  * @param adminToken: String (管理员token)
  */
 
-case class RollBackToPhase1Service(
+case class RollBackToPhase1Message(
   adminToken: String
 ) extends API[Boolean](SemesterPhaseServiceCode)
 
 
 
-case object RollBackToPhase1Service{
+case object RollBackToPhase1Message{
     
   import Common.Serialize.CustomColumnTypes.{decodeDateTime,encodeDateTime}
 
   // Circe 默认的 Encoder 和 Decoder
-  private val circeEncoder: Encoder[RollBackToPhase1Service] = deriveEncoder
-  private val circeDecoder: Decoder[RollBackToPhase1Service] = deriveDecoder
+  private val circeEncoder: Encoder[RollBackToPhase1Message] = deriveEncoder
+  private val circeDecoder: Decoder[RollBackToPhase1Message] = deriveDecoder
 
   // Jackson 对应的 Encoder 和 Decoder
-  private val jacksonEncoder: Encoder[RollBackToPhase1Service] = Encoder.instance { currentObj =>
+  private val jacksonEncoder: Encoder[RollBackToPhase1Message] = Encoder.instance { currentObj =>
     Json.fromString(JacksonSerializeUtils.serialize(currentObj))
   }
 
-  private val jacksonDecoder: Decoder[RollBackToPhase1Service] = Decoder.instance { cursor =>
-    try { Right(JacksonSerializeUtils.deserialize(cursor.value.noSpaces, new TypeReference[RollBackToPhase1Service]() {})) } 
+  private val jacksonDecoder: Decoder[RollBackToPhase1Message] = Decoder.instance { cursor =>
+    try { Right(JacksonSerializeUtils.deserialize(cursor.value.noSpaces, new TypeReference[RollBackToPhase1Message]() {})) } 
     catch { case e: Throwable => Left(io.circe.DecodingFailure(e.getMessage, cursor.history)) }
   }
   
   // Circe + Jackson 兜底的 Encoder
-  given rollBackToPhase1ServiceEncoder: Encoder[RollBackToPhase1Service] = Encoder.instance { config =>
+  given RollBackToPhase1MessageEncoder: Encoder[RollBackToPhase1Message] = Encoder.instance { config =>
     Try(circeEncoder(config)).getOrElse(jacksonEncoder(config))
   }
 
   // Circe + Jackson 兜底的 Decoder
-  given rollBackToPhase1ServiceDecoder: Decoder[RollBackToPhase1Service] = Decoder.instance { cursor =>
+  given RollBackToPhase1MessageDecoder: Decoder[RollBackToPhase1Message] = Decoder.instance { cursor =>
     circeDecoder.tryDecode(cursor).orElse(jacksonDecoder.tryDecode(cursor))
   }
 
