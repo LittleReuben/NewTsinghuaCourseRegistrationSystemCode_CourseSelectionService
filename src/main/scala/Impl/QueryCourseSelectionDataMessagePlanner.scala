@@ -11,6 +11,7 @@ import cats.effect.IO
 import Common.Object.SqlParameter
 import Common.ServiceUtils.schemaName
 import Objects.UserAccountService.SafeUserInfo
+import Utils.CourseSelectionProcess.checkCurrentPhase
 import Utils.CourseSelectionProcess.validateTeacherToken
 import Utils.CourseSelectionProcess.fetchCourseInfoByID
 import Objects.CourseManagementService.CourseInfo
@@ -53,23 +54,15 @@ case class QueryCourseSelectionDataMessagePlanner(
       }
 
       // Step 3: Check if the current phase is Phase2
-      currentPhase <- checkCurrentPhase
-      _ <- if (currentPhase == "Phase2")
-        IO(logger.info("当前阶段为Phase2"))
-      else
-        IO.raiseError(new Exception("当前阶段尚未抽签"))
+      currentPhase <- checkCurrentPhase()
+      _ <- IO {
+        if (currentPhase != Phase.Phase2)
+          throw new IllegalArgumentException("当前阶段尚未抽签！")
+      }
 
       // Step 4: Fetch course selection data
       selectionData <- getCourseSelectionData(courseID)
     } yield selectionData
-  }
-
-  private def checkCurrentPhase(using PlanContext): IO[String] = {
-    val sqlQuery = s"SELECT current_phase FROM ${schemaName}.semester_phase WHERE is_active = true;"
-    readDBString(sqlQuery, List.empty).map { phase =>
-      logger.info(s"当前学期阶段为: ${phase}")
-      phase
-    }
   }
 
   private def getCourseSelectionData(courseID: Int)(using PlanContext): IO[List[SafeUserInfo]] = {
