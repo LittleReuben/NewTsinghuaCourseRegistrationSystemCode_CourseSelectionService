@@ -61,7 +61,7 @@ case object CourseSelectionProcess {
       }
     } yield phase
   }
-  def checkIsDropAllowed()(using PlanContext): IO[Boolean] = {
+  def checkIsRemovePreselectionAllowed()(using PlanContext): IO[Boolean] = {
   // val logger = LoggerFactory.getLogger("checkIsDropAllowed")  // 同文后端处理: logger 统一  // 同文后端处理: logger 统一
     logger.info("开始检查当前是否可以进行取消退课操作")
   
@@ -285,7 +285,7 @@ case object CourseSelectionProcess {
     for {
       // 验证 action 是否符合选课操作范围
       // Edited by Alex_Wei on 7.6: Add "REMOVE_PRESELECTED_COURSE", "预选" -> "PRESELECT_COURSE", "退课" -> "DROP_COURSE", "选课" -> "SELECT_COURSE"
-      validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT", "REMOVE_PRESELECTED_COURSE") }validActions <- IO { Set("选课", "退课", "预选", "REMOVE_PRESELECTED_COURSE") }
+      validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT_COURSE", "REMOVE_PRESELECTED_COURSE") }
       isValidAction <- IO { validActions.contains(action) }
       _ <- IO {
         if (!isValidAction)
