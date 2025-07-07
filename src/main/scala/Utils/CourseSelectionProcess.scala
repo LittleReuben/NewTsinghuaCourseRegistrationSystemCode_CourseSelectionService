@@ -61,7 +61,7 @@ case object CourseSelectionProcess {
       }
     } yield phase
   }
-  def checkIsRemovePreselectionAllowed()(using PlanContext): IO[Boolean] = {
+  def checkIsDropAllowed()(using PlanContext): IO[Boolean] = {
   // val logger = LoggerFactory.getLogger("checkIsDropAllowed")  // 同文后端处理: logger 统一  // 同文后端处理: logger 统一
     logger.info("开始检查当前是否可以进行取消退课操作")
   
