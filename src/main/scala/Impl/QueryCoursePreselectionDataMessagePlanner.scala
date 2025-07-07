@@ -118,7 +118,7 @@ case class QueryCoursePreselectionDataMessagePlanner(
         val sqlQueryForDetails =
           s"""
              SELECT user_id, user_name, account_name, role
-             FROM ${schemaName}.user_table
+             FROM ${schemaName}.user_account_table
              WHERE user_id = ?
            """
         val params = List(SqlParameter("Int", studentID.toString))
