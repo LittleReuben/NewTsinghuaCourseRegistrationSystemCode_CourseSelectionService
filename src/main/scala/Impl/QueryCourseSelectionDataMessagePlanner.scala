@@ -24,6 +24,7 @@ import Objects.UserAccountService.UserRole
 import APIs.UserAccountService.QuerySafeUserInfoByUserIDMessage
 import org.slf4j.LoggerFactory
 import cats.effect.unsafe.implicits.global
+import Objects.SemesterPhaseService.Phase
 
 case class QueryCourseSelectionDataMessagePlanner(
     teacherToken: String,
