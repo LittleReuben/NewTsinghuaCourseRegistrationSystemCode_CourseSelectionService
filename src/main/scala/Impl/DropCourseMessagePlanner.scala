@@ -148,6 +148,38 @@ case class DropCourseMessagePlanner(studentToken: String, courseID: Int, overrid
           throw new IllegalStateException(errorMessage)
         }
       }
+      // Step 10: Check Participation History and Add Entry if Missing
+      _ <- IO(logger.info("[Step 9] 检查课程参与历史记录如果不存在则新增记录"))
+      participationHistoryQuery <- IO {
+        s"""
+        SELECT student_id FROM ${schemaName}.course_participation_history_table
+        WHERE course_id = ? AND student_id = ?
+        """
+      }
+      historyExists <- readDBJsonOptional(
+        participationHistoryQuery,
+        List(
+          SqlParameter("Int", courseID.toString),
+          SqlParameter("Int", studentID.toString)
+        )
+      ).map(_.isDefined)
+      _ <- IO {
+        if (!historyExists) {
+          val insertHistoryQuery =
+            s"""
+            INSERT INTO ${schemaName}.course_participation_history_table (course_id, student_id)
+            VALUES (?, ?)
+            """
+          val params = List(
+            SqlParameter("Int", courseID.toString),
+            SqlParameter("Int", studentID.toString)
+          )
+          writeDB(insertHistoryQuery, params).unsafeRunSync()(using cats.effect.unsafe.implicits.global)
+          logger.info(s"新增课程参与历史记录完成，学生ID: ${studentID}, 课程ID: ${courseID}")
+        } else {
+          logger.info(s"课程参与历史记录已存在，学生ID: ${studentID}, 课程ID: ${courseID}")
+        }
+      }
     } yield "退课成功！"
   }
 }
