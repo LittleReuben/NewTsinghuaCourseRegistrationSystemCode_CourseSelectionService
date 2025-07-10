@@ -77,15 +77,20 @@ case class RemovePreselectedCourseMessagePlanner(
       currentPhase <- checkCurrentPhase()
       _ <- IO {
         if (currentPhase != Phase.Phase1)
-          throw new IllegalArgumentException("[Step 3] 当前阶段下不允许预选课程！")
+          throw new IllegalArgumentException("当前阶段下不允许预选课程！")
       }
 
       // Edited by Alex_Wei on 7.6: checkIsDropAllowed -> checkIsRemovePreselectionAllowed
       removeAllowed <- checkIsRemovePreselectionAllowed()
       _ <- if (!removeAllowed)
-        IO.raiseError(new IllegalArgumentException("[Step 3] 当前状态下不允许移除预选课程！"))
+        IO.raiseError(new IllegalArgumentException("未开启移除预选权限！"))
       else IO.unit
       _ <- IO(logger.info("[Step 3] 当前阶段允许移除预选课程"))
+
+      alreadyPreselected <- isCourseAlreadyPreselected(studentID, courseID)
+      _ <- if (! alreadyPreselected)
+        IO.raiseError(new IllegalArgumentException("未预选该课程"))
+      else IO.unit
 
       // Step 4: Remove preselected course record
       _ <- IO(logger.info(s"[Step 4] 移除预选课程记录，学生ID: ${studentID}, 课程ID: ${courseID}"))
@@ -128,5 +133,22 @@ case class RemovePreselectedCourseMessagePlanner(
         }
       }
     } yield "移除预选成功！"
+  }
+  private def isCourseAlreadyPreselected(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
+    querySQL =
+      s"""
+          SELECT 1
+          FROM ${schemaName}.course_preselection_table
+          WHERE course_id = ? AND student_id = ?
+      """
+    queryParams = List(
+      SqlParameter("Int", courseID.toString),
+      SqlParameter("Int", studentID.toString)
+    )
+    for {
+      resultOpt <- readDBJsonOptional(querySQL, queryParams)
+      alreadyExists = resultOpt.isDefined
+      _ <- IO(logger.info(s"学生ID ${studentID} 预检查课程ID ${courseID} 是否已预选: ${alreadyExists}"))
+    } yield alreadyExists
   }
 }
