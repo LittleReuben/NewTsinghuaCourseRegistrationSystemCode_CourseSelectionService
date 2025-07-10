@@ -69,7 +69,12 @@ case class PreselectCourseMessagePlanner(
       // Edited on 7.6 by Alex_Wei: checkIsSelectionAllowed -> checkIsPreselectionAllowed
       selectionAllowed <- checkIsPreselectionAllowed()
       _ <- if (!selectionAllowed)
-        IO.raiseError(new IllegalArgumentException("当前状态下不允许预选课程！"))
+        IO.raiseError(new IllegalArgumentException("未开启预选权限！"))
+      else IO.unit
+      
+      alreadyPreselected <- isCourseAlreadyPreselected(studentID, courseID)
+      _ <- if (alreadyPreselected)
+        IO.raiseError(new IllegalArgumentException("已预选该课程"))
       else IO.unit
 
       // Step 4: Course conflict validation
@@ -111,5 +116,22 @@ case class PreselectCourseMessagePlanner(
         }
       }
     } yield "预选成功！"
+  }
+  private def isCourseAlreadyPreselected(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
+    for {
+      querySQL =
+        s"""
+           SELECT 1
+           FROM ${schemaName}.course_preselection_table
+           WHERE course_id = ? AND student_id = ?
+        """
+      queryParams = List(
+        SqlParameter("Int", courseID.toString),
+        SqlParameter("Int", studentID.toString)
+      )
+      resultOpt <- readDBJsonOptional(querySQL, queryParams)
+      alreadyExists = resultOpt.isDefined
+      _ <- IO(logger.info(s"学生ID ${studentID} 预检查课程ID ${courseID} 是否已预选: ${alreadyExists}"))
+    } yield alreadyExists
   }
 }
