@@ -119,7 +119,7 @@ case class RemovePreselectedCourseMessagePlanner(
       _ <- IO(logger.info(s"[Step 5] 记录移除预选课程的操作日志"))
       logRecorded <- recordCourseSelectionOperationLog(
         studentID,
-        action = "REMOVE_PRESELECTED_COURSE",
+        action = "取消预选",
         courseID = Some(courseID),
         details = s"学生ID: ${studentID}移除了预选课程ID: ${courseID}"
       )
