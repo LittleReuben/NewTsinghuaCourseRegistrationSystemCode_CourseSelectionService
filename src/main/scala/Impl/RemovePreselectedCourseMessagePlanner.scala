@@ -83,7 +83,7 @@ case class RemovePreselectedCourseMessagePlanner(
       // Edited by Alex_Wei on 7.6: checkIsDropAllowed -> checkIsRemovePreselectionAllowed
       removeAllowed <- checkIsRemovePreselectionAllowed()
       _ <- if (!removeAllowed)
-        IO.raiseError(new IllegalArgumentException("未开启移除预选权限！"))
+        IO.raiseError(new IllegalArgumentException("移除预选权限未开启！"))
       else IO.unit
       _ <- IO(logger.info("[Step 3] 当前阶段允许移除预选课程"))
 
