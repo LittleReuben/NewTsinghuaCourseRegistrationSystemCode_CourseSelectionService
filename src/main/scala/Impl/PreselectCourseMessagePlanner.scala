@@ -102,7 +102,7 @@ case class PreselectCourseMessagePlanner(
       _ <- IO(logger.info(s"记录课程预选操作日志"))
       logRecorded <- recordCourseSelectionOperationLog(
         studentID,
-        action = "PRESELECT_COURSE",
+        action = "预选",
         courseID = Some(courseID),
         details = s"学生ID: ${studentID}预选课程ID: ${courseID}"
       )
