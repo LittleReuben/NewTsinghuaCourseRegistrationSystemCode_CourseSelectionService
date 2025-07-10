@@ -82,7 +82,7 @@ case class DropCourseMessagePlanner(studentToken: String, courseID: Int, overrid
       isDropAllowed <- checkIsDropAllowed()
       _ <- IO {
         if (!isDropAllowed)
-          throw new IllegalArgumentException("退课权限未开启")
+          throw new IllegalArgumentException("退课权限未开启！")
       }
       _ <- IO(logger.info("[Step 4] 退课权限检查通过，允许退课"))
 
