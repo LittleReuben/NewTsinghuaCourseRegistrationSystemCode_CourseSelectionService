@@ -69,7 +69,7 @@ case class PreselectCourseMessagePlanner(
       // Edited on 7.6 by Alex_Wei: checkIsSelectionAllowed -> checkIsPreselectionAllowed
       selectionAllowed <- checkIsPreselectionAllowed()
       _ <- if (!selectionAllowed)
-        IO.raiseError(new IllegalArgumentException("未开启预选权限！"))
+        IO.raiseError(new IllegalArgumentException("预选权限未开启！"))
       else IO.unit
       
       alreadyPreselected <- isCourseAlreadyPreselected(studentID, courseID)
