@@ -94,7 +94,7 @@ case class SelectCourseMessagePlanner(
       _ <- IO {
         if (!isSelectionAllowed) {
           logger.error(s"选课权限未开启，无法进行选课")
-          throw new IllegalArgumentException("选课权限未开启")
+          throw new IllegalArgumentException("选课权限未开启！")
         }
       }
 
@@ -122,7 +122,7 @@ case class SelectCourseMessagePlanner(
       _ <- IO(logger.info(s"记录选课操作日志"))
       logRecorded <- recordCourseSelectionOperationLog(
         studentID,
-        action = "PRESELECT_COURSE",
+        action = "选课",
         courseID = Some(courseID),
         details = s"选课操作结果: ${resultMessage}"
       )
