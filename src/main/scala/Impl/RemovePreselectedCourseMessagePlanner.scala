@@ -135,13 +135,13 @@ case class RemovePreselectedCourseMessagePlanner(
     } yield "移除预选成功！"
   }
   private def isCourseAlreadyPreselected(studentID: Int, courseID: Int)(using PlanContext): IO[Boolean] = {
-    querySQL =
+    val querySQL =
       s"""
           SELECT 1
           FROM ${schemaName}.course_preselection_table
           WHERE course_id = ? AND student_id = ?
       """
-    queryParams = List(
+    val queryParams = List(
       SqlParameter("Int", courseID.toString),
       SqlParameter("Int", studentID.toString)
     )
