@@ -135,7 +135,7 @@ case class DropCourseMessagePlanner(studentToken: String, courseID: Int, overrid
       _ <- IO(logger.info("[Step 8] 记录退课操作日志"))
       logRecorded <- recordCourseSelectionOperationLog(
         studentID = studentID,
-        action = "DROP_COURSE",
+        action = "退课",
         courseID = Some(courseID),
         details = s"学生退课，课程ID: ${courseID}"
       )
