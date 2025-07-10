@@ -281,16 +281,17 @@ case object CourseSelectionProcess {
     details: String
   )(using PlanContext): IO[Boolean] = {
     logger.info(s"开始记录选课操作日志，学生ID: ${studentID}, 动作: ${action}, 课程ID: ${courseID.getOrElse("无")}, 详情: ${details}")
-  
+    
+    val isValidAction = true
     for {
       // 验证 action 是否符合选课操作范围
       // Edited by Alex_Wei on 7.6: Add "REMOVE_PRESELECTED_COURSE", "预选" -> "PRESELECT_COURSE", "退课" -> "DROP_COURSE", "选课" -> "SELECT_COURSE"
-      validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT_COURSE", "REMOVE_PRESELECTED_COURSE") }
-      isValidAction <- IO { validActions.contains(action) }
-      _ <- IO {
-        if (!isValidAction)
-          logger.error(s"验证失败，动作: ${action}不符合选课操作范围")
-      }
+      // validActions <- IO { Set("SELECT_COURSE", "DROP_COURSE", "PRESELECT_COURSE", "REMOVE_PRESELECTED_COURSE") }
+      // isValidAction <- IO { validActions.contains(action) }
+      // _ <- IO {
+      //   if (!isValidAction)
+      //     logger.error(s"验证失败，动作: ${action}不符合选课操作范围")
+      // }
   
       // 如果提供了课程ID，验证该课程是否有效
       validCourseInfo <- courseID match {
@@ -308,7 +309,7 @@ case object CourseSelectionProcess {
       }
   
       detailsWithCourse <- courseID match { 
-        case Some(id) => IO.pure(s"课程ID=${id}:${details}")
+        case Some(id) => IO.pure(s"[课程ID=${id}] ${details}")
         case None => IO.pure(details)
       }
   
